@@ -5,3 +5,10 @@ dist/
 !.env.example
 *.log
 coverage/
+data/
+*.tmp
+.vite/
+.corepack/
+*.tsbuildinfo
+
+/data/missions.json

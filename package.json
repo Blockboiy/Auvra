@@ -1,0 +1,15 @@
+{
+  "name": "auvra",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "dev": "concurrently -n api,web -c magenta,blue \"corepack pnpm --filter @auvra/api dev\" \"corepack pnpm --filter @auvra/web dev\"",
+    "build": "corepack pnpm -r build",
+    "lint": "corepack pnpm -r lint",
+    "typecheck": "corepack pnpm -r typecheck",
+    "test": "corepack pnpm -r test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

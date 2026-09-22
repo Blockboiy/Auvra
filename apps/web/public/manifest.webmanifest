@@ -1,0 +1,17 @@
+{
+  "name": "Auvra",
+  "short_name": "Auvra",
+  "description": "Autonomous execution with budgets, permissions, and transparent spending.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8F7FC",
+  "theme_color": "#211747",
+  "icons": [
+    {
+      "src": "/brand/auvra-monogram.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

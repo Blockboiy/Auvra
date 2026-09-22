@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #201936;
+  background: #f8f7fc;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; background: #f8f7fc; }
+html { scroll-behavior: smooth; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input, textarea { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+::selection { color: #211747; background: #e7dcff; }
+
+@layer components {
+  .card { @apply rounded-2xl border border-line bg-white shadow-card; }
+  .button-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-violet px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#5d27e3] hover:shadow-lift focus:outline-none focus:ring-4 focus:ring-violet/20 disabled:cursor-not-allowed disabled:opacity-50; }
+  .button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-violet/30 hover:bg-violet/[.03] focus:outline-none focus:ring-4 focus:ring-violet/10 disabled:cursor-not-allowed disabled:opacity-50; }
+  .field { @apply w-full rounded-xl border border-line bg-white px-3.5 py-3 text-sm text-ink outline-none transition placeholder:text-muted/60 focus:border-violet/60 focus:ring-4 focus:ring-violet/10; }
+  .eyebrow { @apply text-[11px] font-bold uppercase tracking-[0.16em] text-violet; }
+}
+
+.soft-grid {
+  background-image: linear-gradient(rgba(109,53,247,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(109,53,247,.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.landing-grid {
+  background-image: linear-gradient(rgba(109,53,247,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(109,53,247,.045) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: linear-gradient(to bottom, black, transparent 88%);
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-page-in { animation: page-in .28s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .animate-page-in { animation: none; }
+}
