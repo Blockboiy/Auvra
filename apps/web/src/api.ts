@@ -13,8 +13,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...init?.headers }
   });
   if (response.status === 401 && !window.location.pathname.startsWith("/demo-login")) {
-    window.location.assign("/demo-login");
-    throw new ApiClientError("Please enter the demo access password.", "ACCESS_REQUIRED");
+    window.location.replace("/demo-login");
+    return new Promise<T>(() => {});
   }
   const payload = await response.json().catch(() => undefined) as T | ApiError | undefined;
   if (!response.ok) {
