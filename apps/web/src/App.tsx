@@ -3,6 +3,7 @@ import { AppShell } from "./components/AppShell";
 import { ActivityPage } from "./pages/ActivityPage";
 import { Dashboard } from "./pages/Dashboard";
 import { LandingPage } from "./pages/LandingPage";
+import { DemoLoginPage } from "./pages/DemoLoginPage";
 import { MissionDetail } from "./pages/MissionDetail";
 import { NewMission } from "./pages/NewMission";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -20,6 +21,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/demo-login" element={<DemoLoginPage />} />
       <Route path="/app" element={<WorkspaceLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="missions/new" element={<NewMission />} />
