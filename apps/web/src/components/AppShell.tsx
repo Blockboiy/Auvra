@@ -1,10 +1,11 @@
-import { Activity, ArrowUpRight, Gauge, Menu, Plus, Settings, X } from "lucide-react";
+import { Activity, ArrowUpRight, Gauge, Menu, Plus, Settings, Wallet, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
 
 const nav = [
   { to: "/app", label: "Overview", icon: Gauge, end: true },
   { to: "/app/activity", label: "Spending & activity", icon: Activity },
+  { to: "/app/resources", label: "Resources", icon: Wallet },
   { to: "/app/settings", label: "Settings", icon: Settings }
 ];
 
@@ -37,7 +38,7 @@ function SidebarContent({ close }: { close?: () => void }) {
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-night">
               <img src="/brand/auvra-monogram.png" alt="" className="h-7 w-7 object-contain" />
             </span>
-            <div><p className="text-xs font-semibold text-ink">Local workspace</p><p className="mt-0.5 text-[11px] text-muted">Single-user MVP</p></div>
+            <div><p className="text-xs font-semibold text-ink">Protected workspace</p><p className="mt-0.5 text-[11px] text-muted">Phase 2 · Read-only Web3</p></div>
           </div>
         </div>
       </div>
@@ -63,7 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line/80 bg-canvas/90 px-4 backdrop-blur-xl sm:px-7 lg:px-10">
           <div className="flex items-center gap-3">
             <button aria-label="Open navigation" onClick={() => setOpen(true)} className="rounded-lg p-2 text-ink hover:bg-white lg:hidden"><Menu className="h-5 w-5" /></button>
-            <span className="hidden items-center gap-2 text-xs font-medium text-muted sm:flex"><span className="h-2 w-2 rounded-full bg-emerald-500 ring-4 ring-emerald-100" /> Local execution workspace</span>
+            <span className="hidden items-center gap-2 text-xs font-medium text-muted sm:flex"><span className="h-2 w-2 rounded-full bg-emerald-500 ring-4 ring-emerald-100" /> Auvra execution workspace</span>
           </div>
           <a href="https://www.orbio.so/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-[11px] font-semibold text-muted shadow-sm transition hover:border-violet/30 hover:text-violet focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet/50">
             <span className="h-1.5 w-1.5 rounded-full bg-violet" /> Powered by Orbio
