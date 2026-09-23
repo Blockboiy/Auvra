@@ -28,6 +28,7 @@ export function createApp(config: AppConfig, dependencies: AppDependencies = {})
   app.use(helmet());
   app.use(cors({ origin: config.webOrigin, methods: ["GET", "POST"] }));
   app.use(express.json({ limit: "32kb" }));
+  app.use("/api", (_request, response, next) => { response.setHeader("Cache-Control", "no-store"); next(); });
 
   app.get("/api/health", (_request, response) => response.json({ status: "ok", service: "auvra-api" }));
   app.get("/api/provider/status", async (_request, response, next) => {

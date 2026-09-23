@@ -70,10 +70,12 @@ if (!production) {
     response.redirect(303, "/app");
   });
   const protectApi = (request: Request, response: Response, next: NextFunction) => {
+    response.setHeader("Cache-Control", "no-store");
     if (request.path === "/health" || authenticated(request)) return next();
     response.status(401).json({ error: { code: "ACCESS_REQUIRED", message: "Demo access required." } });
   };
   const protectWorkspace = (request: Request, response: Response, next: NextFunction) => {
+    response.setHeader("Cache-Control", "no-store");
     if (authenticated(request)) return next();
     response.redirect(302, "/demo-login");
   };
@@ -83,7 +85,7 @@ if (!production) {
   gateway.use(express.static(webDist, { index: false }));
   gateway.use((request, response, next) => {
     if (request.method !== "GET" || request.path.startsWith("/api")) return next();
-    response.sendFile(indexFile);
+    response.sendFile(indexFile, { headers: { "Cache-Control": "no-store" } });
   });
   gateway.use(apiApp);
 

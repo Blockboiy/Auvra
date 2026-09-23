@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { InstallAppButton } from "../components/InstallApp";
 
 const ORBIO_URL = "https://www.orbio.so/";
 
@@ -49,7 +50,7 @@ export function LandingPage() {
               <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-violet/15 bg-white px-3.5 py-2 text-xs font-semibold text-violet shadow-sm"><Sparkles className="h-3.5 w-3.5" /> Intelligence with spending power.</div>
               <h1 className="text-[46px] font-bold leading-[.98] tracking-[-.06em] text-night sm:text-6xl lg:text-[76px]">Give AI the outcome.<br /><span className="bg-gradient-to-r from-violet to-glow bg-clip-text text-transparent">Keep control of the spend.</span></h1>
               <p className="mt-7 max-w-2xl text-base leading-8 text-muted sm:text-lg">Give autonomous agents an objective, a budget and permissions. Auvra handles execution while making every action and inference cost visible.</p>
-              <div className="mt-9 flex flex-col gap-3 sm:flex-row"><Link to="/demo-login" className="button-primary px-6 py-3.5">Open Workspace <ArrowRight className="h-4 w-4" /></Link><a href="#how-it-works" className="button-secondary px-6 py-3.5">See How It Works</a></div>
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:flex-wrap"><Link to="/demo-login" className="button-primary px-6 py-3.5">Open Workspace <ArrowRight className="h-4 w-4" /></Link><a href="#how-it-works" className="button-secondary px-6 py-3.5">See How It Works</a><InstallAppButton /></div>
               <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-xs font-medium text-muted"><span className="flex items-center gap-2"><Check className="h-4 w-4 text-violet" /> Explicit permissions</span><span className="flex items-center gap-2"><Check className="h-4 w-4 text-violet" /> Provider-reported costs</span><span className="flex items-center gap-2"><Check className="h-4 w-4 text-violet" /> Bounded execution</span></div>
             </div>
             <HeroVisual />
