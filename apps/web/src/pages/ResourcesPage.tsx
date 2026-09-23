@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { PageHeader } from "../components/ui";
 import { CreditTransferPanel } from "../components/CreditTransferPanel";
+import { FundingReadinessPanel } from "../components/FundingReadinessPanel";
 import {
   ORBIO_CREDIT_ADDRESS, ROBINHOOD_CHAIN_ID, ROBINHOOD_EXPLORER,
   connectWallet, connectedAddress, currentChainId, formatUnits, readCreditSnapshot,
@@ -34,13 +35,15 @@ export function ResourcesPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
+  const [locallyDisconnected, setLocallyDisconnected] = useState(false);
+  const [connectionNotice, setConnectionNotice] = useState<string | null>(null);
   const sequence = useRef(0);
   const wallet = wallets[selected]?.provider;
 
   const refresh = useCallback(async () => {
     const operation = ++sequence.current;
     setError(null);
-    if (!wallet || hidden) {
+    if (!wallet || locallyDisconnected) {
       setAccount(null); setChainId(null); setSnapshot(null); setBusy(false);
       return;
     }
@@ -65,7 +68,7 @@ export function ResourcesPage() {
     } finally {
       if (operation === sequence.current) setBusy(false);
     }
-  }, [wallet, hidden]);
+  }, [wallet, locallyDisconnected]);
 
   useEffect(() => {
     void refresh();
@@ -82,13 +85,22 @@ export function ResourcesPage() {
 
   async function connect() {
     if (!wallet) return;
-    setError(null); setBusy(true);
+    setError(null); setConnectionNotice(null); setBusy(true);
     try {
-      await connectWallet(wallet);
-      if (hidden) setHidden(false); // The effect will refresh after the hidden state changes.
-      else await refresh();
+      const address = await connectWallet(wallet);
+      const chain = await currentChainId(wallet);
+      setLocallyDisconnected(false);
+      setHidden(false);
+      setAccount(address);
+      setChainId(chain);
+      setSnapshot(null);
+      if (chain === ROBINHOOD_CHAIN_ID) {
+        setSnapshot(await readCreditSnapshot(wallet, address));
+      }
     } catch (cause) {
-      setError(walletErrorMessage(cause)); setBusy(false);
+      setError(walletErrorMessage(cause));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -100,12 +112,48 @@ export function ResourcesPage() {
   }
 
   function hideWallet() {
+    setHidden(true);
+    setConnectionNotice("Wallet address hidden. Connection remains active.");
+  }
+
+  function showWallet() {
+    setHidden(false);
+    setConnectionNotice(null);
+  }
+
+  async function disconnect() {
+    if (!wallet) return;
     sequence.current++;
-    setHidden(true); setAccount(null); setChainId(null); setSnapshot(null); setError(null); setBusy(false);
+    setBusy(true);
+    setError(null);
+
+    let revoked = false;
+    try {
+      await wallet.request({
+        method: "wallet_revokePermissions",
+        params: [{ eth_accounts: {} }]
+      });
+      revoked = true;
+    } catch {
+      // Not every browser wallet supports permission revocation.
+    }
+
+    setLocallyDisconnected(true);
+    setHidden(false);
+    setAccount(null);
+    setChainId(null);
+    setSnapshot(null);
+    setBusy(false);
+
+    setConnectionNotice(
+      revoked
+        ? "Wallet disconnected and account permission revoked."
+        : "Wallet disconnected locally. Revoke site access in your wallet extension if needed."
+    );
   }
 
   const correctNetwork = chainId === ROBINHOOD_CHAIN_ID;
-  const connected = Boolean(account) && !hidden;
+  const connected = Boolean(account) && !locallyDisconnected;
   const creditAmount = snapshot ? formatUnits(snapshot.creditRaw, snapshot.creditDecimals) : "—";
   const ethAmount = snapshot ? formatUnits(snapshot.ethWei, 18) : "—";
 
@@ -117,9 +165,9 @@ export function ResourcesPage() {
       <div className="flex flex-wrap items-start justify-between gap-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2"><span className="rounded-lg bg-violet/10 p-2 text-violet"><Wallet className="h-5 w-5" /></span><span className="eyebrow">Wallet connection</span></div>
-          <h2 className="mt-3 break-all text-lg font-semibold text-ink">{connected && account ? shortened(account) : "Connect your wallet"}</h2>
+          <h2 className="mt-3 break-all text-lg font-semibold text-ink">{connected && account ? (hidden ? "Wallet connected" : shortened(account)) : "Connect your wallet"}</h2>
           <p className="mt-1 text-xs leading-5 text-muted">{connected && correctNetwork ? "Robinhood Chain · Connected" : connected ? "Different network selected" : "Your wallet stays in your browser. No private keys or signatures are sent to Auvra."}</p>
-          {connected && account && <a href={`${ROBINHOOD_EXPLORER}/address/${account}`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-violet hover:underline">View wallet on Blockscout <ExternalLink className="h-3.5 w-3.5" /></a>}
+          {connected && account && !hidden && <a href={`${ROBINHOOD_EXPLORER}/address/${account}`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-violet hover:underline">View wallet on Blockscout <ExternalLink className="h-3.5 w-3.5" /></a>}
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {!wallets.length ? <button type="button" className="button-primary" onClick={() => setWallets(walletOptions())}>Detect wallets</button> : <>
@@ -130,13 +178,23 @@ export function ResourcesPage() {
             </label>}
             {!connected ? <button type="button" className="button-primary" disabled={busy} onClick={() => void connect()}>{busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />} Connect {wallets[selected]?.name ?? "wallet"}</button> : <>
               {!correctNetwork ? <button type="button" className="button-primary" disabled={busy} onClick={() => void changeNetwork()}>Switch to Robinhood Chain</button> : <button type="button" className="button-secondary" disabled={busy} onClick={() => void refresh()}><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} /> Refresh</button>}
-              <button type="button" onClick={hideWallet} className="button-secondary">Hide wallet</button>
+              <button type="button" onClick={hidden ? showWallet : hideWallet} className="button-secondary">
+                {hidden ? "Show wallet" : "Hide wallet"}
+              </button>
+              <button type="button" disabled={busy} onClick={() => void disconnect()} className="button-secondary">
+                Disconnect
+              </button>
             </>}
           </>}
         </div>
       </div>
       {!wallets.length && <p className="mt-4 text-xs text-muted">Install or enable an EVM browser wallet such as MetaMask or Rabby, then select Detect wallets. Mobile visitors can use an in-wallet browser.</p>}
-      {hidden && <p className="mt-3 text-xs text-muted">Wallet hidden in Auvra. To revoke a site's wallet permission, use your wallet extension's connected-sites settings.</p>}
+      {hidden && connected && <p className="mt-3 text-xs text-muted">
+        Wallet address hidden. Your connection and resource balances remain active.
+      </p>}
+      {connectionNotice && <p role="status" className="mt-3 text-xs text-muted">
+        {connectionNotice}
+      </p>}
       {error && <p role="alert" className="mt-4 flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-xs leading-5 text-red-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</p>}
     </div>
 
@@ -146,6 +204,7 @@ export function ResourcesPage() {
       <Stat label="Activated AI resources" value="Not integrated" detail="Orbio API balance needs a separately verified account endpoint; wallet CREDIT is not activated inference balance" icon={ShieldCheck} />
     </div>
 
+    <div className="mb-6"><FundingReadinessPanel provider={wallet} account={connected && correctNetwork ? account : null} snapshot={connected && correctNetwork ? snapshot : null} /></div>
     <div className="mb-6"><CreditTransferPanel provider={wallet} account={connected && correctNetwork ? account : null} snapshot={connected && correctNetwork ? snapshot : null} onBalanceRefresh={refresh} /></div>
 
     <div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">
@@ -161,7 +220,7 @@ export function ResourcesPage() {
       </section>
       <div className="space-y-6">
         <section className="card p-5 sm:p-6"><div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold text-ink">Spending requires your approval</h2></div><p className="mt-3 text-xs leading-6 text-muted">Wallet reads and CREDIT transfers run in your browser. Each transfer requires a fresh review and an explicit signature in your wallet. Auvra never stores your private key, performs background transfers, or treats a transfer as an activation. Wallet connection is separate from mission approval.</p></section>
-        <section className="card p-5 sm:p-6"><div className="flex items-center gap-2"><Info className="h-5 w-5 text-violet" /><h2 className="font-semibold text-ink">What comes next?</h2></div><p className="mt-3 text-xs leading-6 text-muted">Activation and funding still require verification of Orbio-specific contract interfaces and authoritative activated-balance receipts. They are not enabled in this release. CREDIT transfers are not equivalent to activation.</p><a href="https://www.orbio.so/protocol" target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-violet hover:underline">Read Orbio's CREDIT protocol <ExternalLink className="h-3.5 w-3.5" /></a></section>
+        <section className="card p-5 sm:p-6"><div className="flex items-center gap-2"><Info className="h-5 w-5 text-violet" /><h2 className="font-semibold text-ink">What comes next?</h2></div><p className="mt-3 text-xs leading-6 text-muted">Funding readiness now reads on-chain USDG and exchange deployment and calculates an illustrative CREDIT shortfall. Activation and purchases remain gated until the verified contract ABI and authoritative API-balance attribution are integrated. Transfers are not activation.</p><a href="https://www.orbio.so/protocol" target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-violet hover:underline">Read Orbio's CREDIT protocol <ExternalLink className="h-3.5 w-3.5" /></a></section>
       </div>
     </div>
   </>;
