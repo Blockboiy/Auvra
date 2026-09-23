@@ -38,7 +38,7 @@ function SidebarContent({ close }: { close?: () => void }) {
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-night">
               <img src="/brand/auvra-monogram.png" alt="" className="h-7 w-7 object-contain" />
             </span>
-            <div><p className="text-xs font-semibold text-ink">Protected workspace</p><p className="mt-0.5 text-[11px] text-muted">Phase 2 · Read-only Web3</p></div>
+            <div><p className="text-xs font-semibold text-ink">Protected workspace</p><p className="mt-0.5 text-[11px] text-muted">Phase 2 · Controlled Web3</p></div>
           </div>
         </div>
       </div>

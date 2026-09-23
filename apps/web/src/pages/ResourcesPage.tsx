@@ -4,6 +4,7 @@ import {
   LoaderCircle, RefreshCw, ShieldCheck, Wallet, Zap
 } from "lucide-react";
 import { PageHeader } from "../components/ui";
+import { CreditTransferPanel } from "../components/CreditTransferPanel";
 import {
   ORBIO_CREDIT_ADDRESS, ROBINHOOD_CHAIN_ID, ROBINHOOD_EXPLORER,
   connectWallet, connectedAddress, currentChainId, formatUnits, readCreditSnapshot,
@@ -110,7 +111,7 @@ export function ResourcesPage() {
 
   return <>
     <PageHeader eyebrow="Phase 2 · Resource management" title="Your intelligence, funded."
-      description="Connect an EVM wallet to inspect your Orbio CREDIT holdings on Robinhood Chain. All blockchain access in this release is read-only." />
+      description="View your Orbio CREDIT holdings on Robinhood Chain and prepare transfers requiring explicit approval in your own wallet." />
 
     <div className="mb-6 rounded-2xl border border-violet/15 bg-gradient-to-r from-violet/[.07] via-white to-white p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-5">
@@ -141,9 +142,11 @@ export function ResourcesPage() {
 
     <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       <Stat label="Wallet CREDIT" value={creditAmount} detail={snapshot ? `On-chain token balance · ${snapshot.creditDecimals} decimals` : "Actual token balance, not a simulated amount"} icon={Coins} />
-      <Stat label="ETH for network fees" value={ethAmount} detail="Native ETH balance on Robinhood Chain; no transfers are enabled" icon={Zap} />
+      <Stat label="ETH for network fees" value={ethAmount} detail="Native ETH balance on Robinhood Chain; network fees apply to signed transfers" icon={Zap} />
       <Stat label="Activated AI resources" value="Not integrated" detail="Orbio API balance needs a separately verified account endpoint; wallet CREDIT is not activated inference balance" icon={ShieldCheck} />
     </div>
+
+    <div className="mb-6"><CreditTransferPanel provider={wallet} account={connected && correctNetwork ? account : null} snapshot={connected && correctNetwork ? snapshot : null} onBalanceRefresh={refresh} /></div>
 
     <div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">
       <section className="card overflow-hidden">
@@ -157,8 +160,8 @@ export function ResourcesPage() {
         </dl>
       </section>
       <div className="space-y-6">
-        <section className="card p-5 sm:p-6"><div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold text-ink">Read-only by design</h2></div><p className="mt-3 text-xs leading-6 text-muted">This release can request account access, switch networks and read token balances. It cannot sign, transfer, activate, purchase or top up CREDIT. Wallet connection is separate from mission approval.</p></section>
-        <section className="card p-5 sm:p-6"><div className="flex items-center gap-2"><Info className="h-5 w-5 text-violet" /><h2 className="font-semibold text-ink">What comes next?</h2></div><p className="mt-3 text-xs leading-6 text-muted">CREDIT activation and funding require verified contract methods, user-approved transactions and authoritative activation receipts. They are not enabled in this release.</p><a href="https://www.orbio.so/protocol" target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-violet hover:underline">Read Orbio's CREDIT protocol <ExternalLink className="h-3.5 w-3.5" /></a></section>
+        <section className="card p-5 sm:p-6"><div className="flex items-center gap-2"><ShieldCheck className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold text-ink">Spending requires your approval</h2></div><p className="mt-3 text-xs leading-6 text-muted">Wallet reads and CREDIT transfers run in your browser. Each transfer requires a fresh review and an explicit signature in your wallet. Auvra never stores your private key, performs background transfers, or treats a transfer as an activation. Wallet connection is separate from mission approval.</p></section>
+        <section className="card p-5 sm:p-6"><div className="flex items-center gap-2"><Info className="h-5 w-5 text-violet" /><h2 className="font-semibold text-ink">What comes next?</h2></div><p className="mt-3 text-xs leading-6 text-muted">Activation and funding still require verification of Orbio-specific contract interfaces and authoritative activated-balance receipts. They are not enabled in this release. CREDIT transfers are not equivalent to activation.</p><a href="https://www.orbio.so/protocol" target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-violet hover:underline">Read Orbio's CREDIT protocol <ExternalLink className="h-3.5 w-3.5" /></a></section>
       </div>
     </div>
   </>;
