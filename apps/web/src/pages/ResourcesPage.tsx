@@ -6,6 +6,7 @@ import {
 import { PageHeader } from "../components/ui";
 import { CreditTransferPanel } from "../components/CreditTransferPanel";
 import { FundingReadinessPanel } from "../components/FundingReadinessPanel";
+import { HybridResourcesPanel } from "../components/HybridResourcesPanel";
 import {
   ORBIO_CREDIT_ADDRESS, ROBINHOOD_CHAIN_ID, ROBINHOOD_EXPLORER,
   connectWallet, connectedAddress, currentChainId, formatUnits, readCreditSnapshot,
@@ -205,6 +206,7 @@ export function ResourcesPage() {
     </div>
 
     <div className="mb-6"><FundingReadinessPanel provider={wallet} account={connected && correctNetwork ? account : null} snapshot={connected && correctNetwork ? snapshot : null} /></div>
+    <div className="mb-6"><HybridResourcesPanel provider={wallet} account={connected && correctNetwork ? account : null} snapshot={connected && correctNetwork ? snapshot : null} /></div>
     <div className="mb-6"><CreditTransferPanel provider={wallet} account={connected && correctNetwork ? account : null} snapshot={connected && correctNetwork ? snapshot : null} onBalanceRefresh={refresh} /></div>
 
     <div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">

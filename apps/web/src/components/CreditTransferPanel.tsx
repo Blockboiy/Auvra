@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowUpRight, CheckCircle2, Clock3, LoaderCircle, RefreshCw, Send, ShieldCheck } from "lucide-react";
+import { ChevronDown, AlertCircle, ArrowUpRight, CheckCircle2, Clock3, LoaderCircle, RefreshCw, Send, ShieldCheck } from "lucide-react";
 import { formatUnits, walletErrorMessage, type CreditSnapshot, type Eip1193Provider } from "../web3/credit";
 import {
   checkTransferReceipt, loadTransferRecords, prepareCreditTransfer, saveTransferRecord,
@@ -76,14 +76,15 @@ export function CreditTransferPanel({ provider, account, snapshot, onBalanceRefr
     finally { setChecking(null); }
   }
 
-  return <section className="card overflow-hidden" aria-labelledby="credit-transfer-heading">
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-5 sm:px-6">
+  return <details className="group card overflow-hidden" aria-labelledby="credit-transfer-heading">
+    <summary className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-5 sm:px-6 cursor-pointer list-none transition-colors hover:bg-violet/[.025] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-violet [&::-webkit-details-marker]:hidden">
       <div className="flex items-center gap-3">
         <span className="rounded-xl bg-violet/[.07] p-2.5 text-violet"><Send className="h-5 w-5" /></span>
         <div><h2 id="credit-transfer-heading" className="font-semibold text-ink">Send CREDIT</h2><p className="mt-0.5 text-xs text-muted">One explicit wallet approval per transfer. No automated spending.</p></div>
       </div>
       <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">User-approved only</span>
-    </div>
+      <ChevronDown aria-hidden="true" className="h-5 w-5 shrink-0 text-violet transition-transform duration-200 group-open:rotate-180" />
+    </summary>
     <div className="space-y-5 p-5 sm:p-6">
       <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-900">
         CREDIT transfers are on-chain and may be irreversible. Sending CREDIT does not activate inference resources. You need ETH for gas. This public demo does not store or receive your wallet keys.
@@ -136,5 +137,5 @@ export function CreditTransferPanel({ provider, account, snapshot, onBalanceRefr
           {record.status === "submitted" && <p className="mt-2 flex items-center gap-1 text-amber-800"><Clock3 className="h-3.5 w-3.5" /> Waiting for an authoritative receipt.</p>}
         </div>)}</div>}
     </div>
-  </section>;
+  </details>;
 }
