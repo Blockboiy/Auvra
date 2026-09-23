@@ -162,10 +162,8 @@ export class AgentRunner {
         const result = await this.infer(id, {
           messages,
           tools: finalStep ? [] : publicSearchCalls >= MAX_PUBLIC_SEARCH_CALLS ? definitions.filter(definition => definition.function.name !== "web_search") : definitions,
-          maxOutputTokens: finalStep ? this.config.finalOutputTokens : this.config.executionOutputTokens,
-          ...((finalStep ? (mission.modelRoute?.final ?? mission.modelRoute?.execution) : mission.modelRoute?.execution)
-            ? { preferredModel: finalStep ? (mission.modelRoute?.final ?? mission.modelRoute?.execution)! : mission.modelRoute!.execution! }
-            : {}),
+          maxOutputTokens: finalStep && !mission.modelRoute?.final ? this.config.finalOutputTokens : this.config.executionOutputTokens,
+          ...(mission.modelRoute?.execution ? { preferredModel: mission.modelRoute.execution } : {}),
           temperature: 0.2,
           signal
         }, `Execution step ${step}`, step);
@@ -182,7 +180,45 @@ export class AgentRunner {
           if (researchRequired && successfulWebSearches === 0) {
             throw new Error("This mission needs live sources, but no web search completed. No unverified list was presented as a completed result.");
           }
-          await this.complete(id, result.text.trim());
+
+          const executorDraft = result.text.trim();
+          if (mission.modelRoute?.final) {
+            const synthesisMission = await this.requireMission(id);
+            const synthesis = await this.infer(id, {
+              messages: [
+                {
+                  role: "system",
+                  content: [
+                    "You are Auvra's dedicated final-synthesis model.",
+                    "Turn the executor draft into the clearest final deliverable for the user's objective.",
+                    "Use only claims, citations, caveats and evidence already present in the supplied draft and saved mission notes.",
+                    "Do not browse, call tools, invent sources, add unsupported facts, or claim actions that were not completed.",
+                    "Preserve useful citations and explicitly retain uncertainty or verification caveats.",
+                    "Return only the final user-facing answer."
+                  ].join(" ")
+                },
+                {
+                  role: "user",
+                  content: [
+                    `Objective: ${synthesisMission.objective}`,
+                    `Executor draft:\n${executorDraft}`,
+                    synthesisMission.notes.length ? `Saved mission notes:\n${synthesisMission.notes.slice(-6).join("\n\n")}` : ""
+                  ].filter(Boolean).join("\n\n")
+                }
+              ],
+              tools: [],
+              maxOutputTokens: this.config.finalOutputTokens,
+              preferredModel: mission.modelRoute.final,
+              temperature: 0.15,
+              signal
+            }, "Final synthesis", step);
+            if (!synthesis.text.trim()) throw new Error(`Orbio returned no final synthesis${synthesis.finishReason ? ` (finish reason: ${synthesis.finishReason.slice(0, 40)})` : ""}. Earlier work and charges remain recorded; no automatic retry was made.`);
+            if (incompleteFinishReason(synthesis.finishReason)) throw new Error(`Orbio stopped before completing final synthesis (finish reason: ${synthesis.finishReason ?? "unknown"}). Earlier work and charges remain recorded; no automatic retry was made.`);
+            await this.complete(id, synthesis.text.trim());
+            return;
+          }
+
+          await this.complete(id, executorDraft);
           return;
         }
 

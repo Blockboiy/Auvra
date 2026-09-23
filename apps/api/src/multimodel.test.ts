@@ -12,7 +12,8 @@ class RoutingProvider implements InferenceProvider {
   async complete(request: InferenceRequest): Promise<InferenceResult> {
     this.requests.push(request);
     if (this.requests.length === 1) return answer('{"summary":"route","steps":["finish"]}');
-    return answer("final answer");
+    if (this.requests.length === 2) return answer("executor draft");
+    return answer("synthesized final answer");
   }
 }
 
@@ -27,7 +28,9 @@ describe("multi-model mission routing", () => {
     await request(app).post(`/api/missions/${created.body.id}/start`);
     for (let i=0;i<50;i++){ const current=await request(app).get(`/api/missions/${created.body.id}`); if (["completed","failed","budget_exhausted"].includes(current.body.status)) break; await new Promise(r=>setTimeout(r,10)); }
     expect(provider.requests[0]?.preferredModel).toBe("model/a");
-    expect(provider.requests[1]?.preferredModel).toBe("model/c");
+    expect(provider.requests[1]?.preferredModel).toBe("model/b");
+    expect(provider.requests[2]?.preferredModel).toBe("model/c");
+    expect(provider.requests[2]?.tools).toEqual([]);
   });
 
   it("rejects a model outside the configured Orbio pool", async () => {
