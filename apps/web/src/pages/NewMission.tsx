@@ -1,6 +1,6 @@
-import { PERMISSIONS, type PermissionId } from "@auvra/shared";
-import { ArrowLeft, ArrowRight, Check, CircleDollarSign, LockKeyhole, Sparkles } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { PERMISSIONS, type MissionModelRoute, type PermissionId, type ProviderStatus } from "@auvra/shared";
+import { ArrowLeft, ArrowRight, Check, CircleDollarSign, Cpu, LockKeyhole, Sparkles } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api, ApiClientError } from "../api";
 import { PageHeader } from "../components/ui";
@@ -8,19 +8,35 @@ import { PageHeader } from "../components/ui";
 export function NewMission() {
   const navigate = useNavigate();
   const location = useLocation();
-  const retry = (location.state as { retry?: { objective?: string; budgetUsd?: number; permissions?: PermissionId[] } } | null)?.retry;
+  const retry = (location.state as { retry?: { objective?: string; budgetUsd?: number; permissions?: PermissionId[]; modelRoute?: MissionModelRoute } } | null)?.retry;
   const [objective, setObjective] = useState(retry?.objective ?? "");
   const [budget, setBudget] = useState(String(retry?.budgetUsd ?? 0.05));
   const [permissions, setPermissions] = useState<PermissionId[]>(retry?.permissions?.filter((id) => PERMISSIONS.some((p) => p.id === id)) ?? []);
+  const [modelRoute, setModelRoute] = useState<MissionModelRoute>(retry?.modelRoute ?? {});
+  const [provider, setProvider] = useState<ProviderStatus | null>(null);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    let active = true;
+    void api.providerStatus().then((status) => { if (active) setProvider(status); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   const needsWebResearch = /\b(find|list|identify|research|search|look\s*up|get\s+me\s+a\s+list)\b/i.test(objective) && /\b(restaurants?|resturants?|business(?:es)?|compan(?:y|ies)|vendors?|shops?|stores?|places?|websites?|news)\b/i.test(objective);
+  const modelPool = provider?.models?.length ? provider.models : provider ? [provider.model] : [];
+  const routeStages: Array<{ key: keyof MissionModelRoute; label: string; help: string }> = [
+    { key: "planning", label: "Planner", help: "Builds the mission plan." },
+    { key: "execution", label: "Executor", help: "Uses approved tools and works through the mission." },
+    { key: "final", label: "Final synthesis", help: "Writes the final user-facing result." }
+  ];
+  const setRouteModel = (stage: keyof MissionModelRoute, value: string) => setModelRoute((current) => { const next = { ...current }; if (value) next[stage] = value; else delete next[stage]; return next; });
   const toggle = (id: PermissionId) => setPermissions((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(undefined); setSaving(true);
     try {
-      const mission = await api.createMission({ objective, budgetUsd: Number(budget), permissions });
+      const hasModelRoute = Boolean(modelRoute.planning || modelRoute.execution || modelRoute.final);
+      const mission = await api.createMission({ objective, budgetUsd: Number(budget), permissions, ...(hasModelRoute ? { modelRoute } : {}) });
       navigate(`/app/missions/${mission.id}`);
     } catch (caught) {
       const details = caught instanceof ApiClientError && Array.isArray(caught.details) ? ` ${caught.details.join(" ")}` : "";
@@ -44,6 +60,13 @@ export function NewMission() {
         <section className="grid gap-5 md:grid-cols-2">
           <div className="card p-5 sm:p-6"><div className="mb-5 flex items-center gap-3"><span className="rounded-xl bg-amber-50 p-2.5 text-amber-700"><CircleDollarSign className="h-5 w-5" /></span><div><h2 className="font-semibold text-ink">Spending limit</h2><p className="mt-1 text-xs text-muted">Orbio inference budget</p></div></div><label htmlFor="budget" className="mb-2 block text-xs font-semibold text-ink">Maximum budget</label><div className="relative"><span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted">$</span><input id="budget" className="field pl-7" type="number" min="0.001" max="100" step="0.001" value={budget} onChange={(event) => setBudget(event.target.value)} required /></div><p className="mt-3 text-[11px] leading-5 text-muted">Every Orbio inference call is budget-checked. External web-search provider charges, if enabled, are separate and are not included in this mission limit.</p></div>
           <div className="card p-5 sm:p-6"><div className="mb-5 flex items-center gap-3"><span className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><LockKeyhole className="h-5 w-5" /></span><div><h2 className="font-semibold text-ink">Approved permissions</h2><p className="mt-1 text-xs text-muted">Denied by default</p></div></div><div className="space-y-2.5">{PERMISSIONS.map((permission) => { const checked = permissions.includes(permission.id); return <button key={permission.id} type="button" onClick={() => toggle(permission.id)} aria-pressed={checked} className={`flex w-full items-start gap-3 rounded-xl border p-3 text-left transition ${checked ? "border-violet/30 bg-violet/[.04]" : "border-line hover:bg-canvas"}`}><span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${checked ? "border-violet bg-violet text-white" : "border-line bg-white"}`}>{checked ? <Check className="h-3.5 w-3.5" /> : null}</span><span><span className="block text-xs font-semibold text-ink">{permission.name}</span><span className="mt-1 block text-[11px] leading-4 text-muted">{permission.description}</span></span></button>; })}</div></div>
+        </section>
+        <section className="card p-5 sm:p-7">
+          <div className="mb-5 flex items-start gap-3"><span className="rounded-xl bg-violet/[.08] p-2.5 text-violet"><Cpu className="h-5 w-5" /></span><div><h2 className="font-semibold text-ink">AI routing</h2><p className="mt-1 text-sm text-muted">Choose which Orbio model handles each stage of the mission.</p></div></div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {routeStages.map((stage) => <label key={stage.key} className="block rounded-xl border border-line p-4"><span className="text-xs font-semibold text-ink">{stage.label}</span><span className="mt-1 block min-h-8 text-[11px] leading-4 text-muted">{stage.help}</span><select className="field mt-3 w-full" value={modelRoute[stage.key] ?? ""} onChange={(event) => setRouteModel(stage.key, event.target.value)}><option value="">Auto · primary model</option>{modelPool.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>)}
+          </div>
+          <p className="mt-4 text-[11px] leading-5 text-muted">All selected models still run through the same Orbio gateway and share this mission's USD budget. Auvra records the actual serving model and provider-reported cost for every call. If a selected route is definitively unavailable, Auvra may try the remaining configured pool; it does not silently retry uncertain or possibly billed requests.</p>
         </section>
         {error ? <div role="alert" className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Link to="/app" className="button-secondary">Cancel</Link><button type="submit" disabled={saving} className="button-primary">{saving ? "Creating…" : "Review mission"}<ArrowRight className="h-4 w-4" /></button></div>

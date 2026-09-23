@@ -221,8 +221,12 @@ export class OrbioProvider implements InferenceProvider {
 
   async complete(request: InferenceRequest): Promise<InferenceResult> {
     if (!this.config.apiKey) throw new ProviderError("Orbio is not configured on the server.", "NOT_CONFIGURED");
-    // Exact IDs from the configured pool only; no speculative model names or silent provider switch.
-    const models = [...new Set([this.config.model, ...(this.config.models ?? [])].map((model) => model.trim()).filter(Boolean))].slice(0, 4);
+    // Exact configured IDs only. A mission may prefer one configured model for this stage;
+    // the remaining configured pool is fallback only after a definitive MODEL_UNAVAILABLE response.
+    const configuredModels = [...new Set([this.config.model, ...(this.config.models ?? [])].map((model) => model.trim()).filter(Boolean))].slice(0, 4);
+    const models = request.preferredModel
+      ? [request.preferredModel, ...configuredModels.filter((model) => model !== request.preferredModel)].slice(0, 4)
+      : configuredModels;
     const attemptedModels: string[] = [];
     for (const model of models) {
       if (request.signal?.aborted) throw new ProviderError("Mission execution was cancelled.", "CANCELLED", false, attemptedModels);

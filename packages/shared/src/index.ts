@@ -82,6 +82,12 @@ export interface MissionPlan {
   steps: string[];
 }
 
+export interface MissionModelRoute {
+  planning?: string;
+  execution?: string;
+  final?: string;
+}
+
 export interface Mission {
   id: string;
   objective: string;
@@ -91,6 +97,7 @@ export interface Mission {
   currentStep: number;
   maxSteps: number;
   plan?: MissionPlan;
+  modelRoute?: MissionModelRoute;
   finalOutput?: string;
   error?: string;
   actualCostUsd: number;
@@ -109,6 +116,7 @@ export interface CreateMissionInput {
   objective: string;
   budgetUsd: number;
   permissions: PermissionId[];
+  modelRoute?: MissionModelRoute;
 }
 
 export interface DashboardSummary {
@@ -187,8 +195,24 @@ export function validateCreateMission(input: unknown):
   if (Array.isArray(rawPermissions) && permissions.length !== rawPermissions.length) {
     errors.push("One or more permissions are not supported.");
   }
+
+  const modelRoute: MissionModelRoute = {};
+  if (candidate.modelRoute !== undefined) {
+    if (!candidate.modelRoute || typeof candidate.modelRoute !== "object" || Array.isArray(candidate.modelRoute)) {
+      errors.push("Model routing must be an object.");
+    } else {
+      const route = candidate.modelRoute as Record<string, unknown>;
+      for (const stage of ["planning", "execution", "final"] as const) {
+        const value = route[stage];
+        if (value === undefined || value === "") continue;
+        if (typeof value !== "string" || value.trim().length < 2 || value.trim().length > 160 || !/^[a-zA-Z0-9._:/-]+$/.test(value.trim())) {
+          errors.push(`Model route '${stage}' contains an invalid model ID.`);
+        } else modelRoute[stage] = value.trim();
+      }
+    }
+  }
   if (errors.length > 0 || typeof budgetUsd !== "number") return { success: false, errors };
-  return { success: true, data: { objective, budgetUsd, permissions } };
+  return { success: true, data: { objective, budgetUsd, permissions, ...(Object.keys(modelRoute).length ? { modelRoute } : {}) } };
 }
 
 export const isTerminalStatus = (status: MissionStatus): boolean =>

@@ -25,6 +25,7 @@ export interface ToolDefinition {
 export interface InferenceRequest {
   messages: ChatMessage[];
   tools?: ToolDefinition[];
+  preferredModel?: string;
   maxOutputTokens: number;
   temperature?: number;
   signal?: AbortSignal;

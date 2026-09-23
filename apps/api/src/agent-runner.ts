@@ -111,6 +111,7 @@ export class AgentRunner {
           }
         ],
         maxOutputTokens: this.config.planningOutputTokens,
+        ...(initial.modelRoute?.planning ? { preferredModel: initial.modelRoute.planning } : {}),
         temperature: 0.1,
         signal
       }, "Planning inference");
@@ -162,6 +163,9 @@ export class AgentRunner {
           messages,
           tools: finalStep ? [] : publicSearchCalls >= MAX_PUBLIC_SEARCH_CALLS ? definitions.filter(definition => definition.function.name !== "web_search") : definitions,
           maxOutputTokens: finalStep ? this.config.finalOutputTokens : this.config.executionOutputTokens,
+          ...((finalStep ? (mission.modelRoute?.final ?? mission.modelRoute?.execution) : mission.modelRoute?.execution)
+            ? { preferredModel: finalStep ? (mission.modelRoute?.final ?? mission.modelRoute?.execution)! : mission.modelRoute!.execution! }
+            : {}),
           temperature: 0.2,
           signal
         }, `Execution step ${step}`, step);

@@ -47,6 +47,12 @@ export class MissionService {
   }
 
   private async createValidated(input: CreateMissionInput): Promise<Mission> {
+    const allowedModels = new Set([this.config.provider.model, ...(this.config.provider.models ?? [])]);
+    for (const [stage, model] of Object.entries(input.modelRoute ?? {})) {
+      if (model && !allowedModels.has(model)) {
+        throw new DomainError(`The selected ${stage} model is not in Auvra's configured Orbio model pool.`, "MODEL_NOT_CONFIGURED", 422);
+      }
+    }
     const now = new Date().toISOString();
     const id = randomUUID();
     const mission: Mission = {
@@ -54,6 +60,7 @@ export class MissionService {
       objective: input.objective,
       budgetUsd: input.budgetUsd,
       permissions: input.permissions,
+      ...(input.modelRoute ? { modelRoute: input.modelRoute } : {}),
       status: "draft",
       currentStep: 0,
       maxSteps: this.config.maxSteps,
