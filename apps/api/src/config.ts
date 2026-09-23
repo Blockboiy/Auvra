@@ -17,6 +17,9 @@ export interface AppConfig {
   missionTimeoutMs: number;
   preflightCostUsd: number;
   maxOutputTokens: number;
+  executionOutputTokens: number;
+  planningOutputTokens: number;
+  finalOutputTokens: number;
   webSearch?: { apiKey: string };
   provider: {
     apiKey: string;
@@ -25,6 +28,7 @@ export interface AppConfig {
     models?: string[];
     timeoutMs: number;
     retries: number;
+    reasoningEffort?: "none" | "low" | "high" | "max";
   };
 }
 
@@ -37,6 +41,9 @@ export function getConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     missionTimeoutMs: numberFromEnv("AUVRA_MISSION_TIMEOUT_MS", 360_000, 5_000),
     preflightCostUsd: numberFromEnv("AUVRA_PREFLIGHT_COST_USD", 0.002, 0.000001),
     maxOutputTokens: Math.min(2_000, numberFromEnv("AUVRA_MAX_OUTPUT_TOKENS", 700, 64)),
+    executionOutputTokens: Math.min(4_096, Math.floor(numberFromEnv("AUVRA_EXECUTION_OUTPUT_TOKENS", 2_048, 701))),
+    planningOutputTokens: Math.min(8_192, Math.floor(numberFromEnv("AUVRA_PLANNING_OUTPUT_TOKENS", 3_072, 512))),
+    finalOutputTokens: Math.min(16_384, Math.floor(numberFromEnv("AUVRA_FINAL_OUTPUT_TOKENS", 8_192, 1_200))),
     webSearch: { apiKey: process.env.BRAVE_SEARCH_API_KEY?.trim() ?? "" },
     provider: {
       apiKey: process.env.ORBIO_API_KEY?.trim() ?? "",
@@ -45,7 +52,10 @@ export function getConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       // Optional ordered fallback pool. Only models explicitly configured here are tried.
       models: (process.env.ORBIO_MODELS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
       timeoutMs: numberFromEnv("AUVRA_PROVIDER_TIMEOUT_MS", 90_000, 1_000),
-      retries: Math.min(2, numberFromEnv("AUVRA_PROVIDER_RETRIES", 0, 0))
+      retries: Math.min(2, numberFromEnv("AUVRA_PROVIDER_RETRIES", 0, 0)),
+      ...(process.env.ORBIO_REASONING_EFFORT && ["none", "low", "high", "max"].includes(process.env.ORBIO_REASONING_EFFORT.trim())
+        ? { reasoningEffort: process.env.ORBIO_REASONING_EFFORT.trim() as "none" | "low" | "high" | "max" }
+        : {})
     }
   };
   return {

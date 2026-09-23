@@ -115,7 +115,9 @@ export function parseOrbioResponse(payload: unknown, fallbackModel: string): Inf
     usage: { input, output, total: finiteNumber(usage?.total_tokens) ?? input + output },
     actualCostUsd: parseProviderCost(payload),
     model: typeof root?.model === "string" ? root.model : fallbackModel,
-    finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null
+    finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null,
+    ...(finiteNumber(asRecord(usage?.completion_tokens_details)?.reasoning_tokens) !== null
+      ? { reasoningTokens: finiteNumber(asRecord(usage?.completion_tokens_details)?.reasoning_tokens)! } : {})
   };
 }
 
@@ -235,7 +237,8 @@ export class OrbioProvider implements InferenceProvider {
             model,
             messages: request.messages,
             ...(request.tools?.length ? { tools: request.tools, tool_choice: "auto" } : {}),
-            max_tokens: request.maxOutputTokens
+            max_tokens: request.maxOutputTokens,
+            ...(this.config.reasoningEffort ? { reasoning_effort: this.config.reasoningEffort } : {}),
           }),
           signal
         });

@@ -149,7 +149,27 @@ describe("mission API and executor", () => {
     expect(stopped.events.find((event: { type: string }) => event.type === "inference.completed").cost).toBeUndefined();
   });
 
-  it("enforces the configured execution-step limit", async () => {
+  it("reserves the final execution step for a tool-free answer", async () => {
+    const call = result({ text: "", toolCalls: [{ id: "math-1", type: "function", function: { name: "calculate", arguments: '{"operation":"add","a":1,"b":1}' } }] });
+    const provider = new ScriptedProvider([
+      result({ text: '{"summary":"plan","steps":["calculate","report"]}' }),
+      call,
+      async (request) => {
+        expect(request.tools).toEqual([]);
+        expect(request.messages.some(message => message.role === "system" && message.content?.includes("final permitted execution turn"))).toBe(true);
+        return result({ text: "1 + 1 = 2, based on the recorded calculator output." });
+      }
+    ]);
+    const { app } = setup(provider, { maxSteps: 2 });
+    const created = await createMission(app);
+    await request(app).post("/api/missions/" + created.body.id + "/start");
+    const completed = await waitForTerminal(app, created.body.id);
+    expect(completed.status).toBe("completed");
+    expect(completed.finalOutput).toContain("1 + 1 = 2");
+    expect(provider.calls).toBe(3); // 1 planner + 2 execution turns, not an extra billed turn.
+  });
+
+  it("rejects unexpected tool requests on the final synthesis turn", async () => {
     const call = result({ text: "", toolCalls: [{ id: "loop", type: "function", function: { name: "calculate", arguments: '{"operation":"add","a":1,"b":1}' } }] });
     const provider = new ScriptedProvider([result({ text: '{"summary":"plan","steps":["loop"]}' }), call]);
     const { app } = setup(provider, { maxSteps: 1 });
@@ -157,7 +177,102 @@ describe("mission API and executor", () => {
     await request(app).post(`/api/missions/${created.body.id}/start`);
     const stopped = await waitForTerminal(app, created.body.id);
     expect(stopped.status).toBe("failed");
-    expect(stopped.error).toContain("1-step limit");
+    expect(stopped.error).toContain("Finalization returned a tool request");
+  });
+
+  it("limits research to three searches even if one response requests several", async () => {
+    const call = (id: string) => ({ id, type: "function" as const, function: { name: "web_search", arguments: JSON.stringify({ query: "small business agent governance" }) } });
+    const provider = new ScriptedProvider([
+      result({ text: '{"summary":"market","steps":["search","report"]}' }),
+      result({ text: "", toolCalls: [call("one"), call("two"), call("three")] }),
+      async (inference) => {
+        expect(inference.tools).toEqual([]);
+        return result({ text: "Possible use cases need verification; these are not confirmed customers." });
+      }
+    ]);
+    const config = getConfig({
+      maxSteps: 2, webSearch: { apiKey: "test-search-key" },
+      provider: { apiKey: "test-key", baseUrl: "https://example.invalid/api/v1", model: "mock/orbio", timeoutMs: 500, retries: 0 }
+    });
+    let searchRequests = 0;
+    const fakeFetch = async () => { searchRequests++; return new Response(JSON.stringify({ web: { results: [{ title: "Evidence", url: "https://example.org/evidence", description: "Potential use case" }] } }), { status: 200 }); };
+    const fakeSearch = new BraveWebSearch("test-search-key", fakeFetch as typeof fetch);
+    const { app } = createApp(config, { repository: new MemoryMissionRepository(), provider, searchProvider: fakeSearch });
+    const created = await createMission(app, { objective: "Research businesses who may benefit from Auvra and list potential users", permissions: ["web.search"] });
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const completed = await waitForTerminal(app, created.body.id);
+    expect(completed.status).toBe("completed");
+    expect(searchRequests).toBe(3); // Includes mandatory preflight search.
+    expect(completed.events.filter((e: { type: string }) => e.type === "tool.failed")).toHaveLength(1);
+    expect(provider.calls).toBe(3);
+  });
+
+  it("preserves partial work instead of retrying an empty billed final response", async () => {
+    const provider = new ScriptedProvider([
+      result({ text: '{"summary":"calculate","steps":["calculate","report"]}' }),
+      result({ text: "", toolCalls: [{ id: "math", type: "function", function: { name: "calculate", arguments: '{"operation":"add","a":1,"b":1}' } }] }),
+      result({ text: "", finishReason: "length" })
+    ]);
+    const { app } = setup(provider, { maxSteps: 2 });
+    const created = await createMission(app);
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const stopped = await waitForTerminal(app, created.body.id);
+    expect(stopped.status).toBe("failed");
+    expect(stopped.error).toContain("no final response");
+    expect(stopped.events.some((e: { type: string }) => e.type === "tool.completed")).toBe(true);
+    expect(provider.calls).toBe(3); // Never silently repeat a possibly charged response.
+  });
+
+  it("does not mark a truncated non-empty response as complete", async () => {
+    const provider = new ScriptedProvider([
+      result({ text: '{"summary":"finish","steps":["report"]}' }),
+      result({ text: "An unfinished [source](https://example.org", finishReason: "length" })
+    ]);
+    const { app } = setup(provider, { maxSteps: 1 });
+    const created = await createMission(app);
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const stopped = await waitForTerminal(app, created.body.id);
+    expect(stopped.status).toBe("failed");
+    expect(stopped.finalOutput).toBeUndefined();
+    expect(stopped.error).toContain("stopped before a complete answer");
+    expect(provider.calls).toBe(2);
+  });
+
+  it("gives planning and final synthesis separate output allowances", async () => {
+    const provider = new ScriptedProvider([
+      async (call) => { expect(call.maxOutputTokens).toBeGreaterThanOrEqual(512); return result({ text: '{"summary":"plan","steps":["write"]}' }); },
+      async (call) => { expect(call.maxOutputTokens).toBeGreaterThanOrEqual(1200); expect(call.tools).toEqual([]); return result({ text: "A complete final answer." }); }
+    ]);
+    const { app } = setup(provider, { maxSteps: 1 });
+    const created = await createMission(app);
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const done = await waitForTerminal(app, created.body.id);
+    expect(done.status).toBe("completed");
+    expect(done.finalOutput).toBe("A complete final answer.");
+    expect(provider.calls).toBe(2);
+  });
+
+  it("normalizes structured plan steps and gives execution enough output tokens", async () => {
+    const provider = new ScriptedProvider([
+      result({ text: JSON.stringify({ summary: "Assess potential beneficiaries", steps: [
+        { step: 1, tool: "web.search", action: "Research customer segments", purpose: "Find evidence" },
+        { step: 2, action: "Separate potential from verified customers" }
+      ] }) }),
+      async (call) => {
+        expect(call.maxOutputTokens).toBeGreaterThan(700);
+        return result({ text: "Potential segments are not verified customers." });
+      }
+    ]);
+    const { app } = setup(provider, { maxSteps: 2 });
+    const created = await createMission(app);
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const finished = await waitForTerminal(app, created.body.id);
+    expect(finished.status).toBe("completed");
+    expect(finished.plan.steps).toEqual([
+      "Research customer segments",
+      "Separate potential from verified customers"
+    ]);
+    expect(provider.calls).toBe(2);
   });
 
   it("propagates cancellation and makes it durable", async () => {

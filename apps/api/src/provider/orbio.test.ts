@@ -77,6 +77,32 @@ describe("Orbio response parsing", () => {
     expect(body).not.toHaveProperty("temperature");
   });
 
+  it("sends optional reasoning mode only when opted in for a verified route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ finish_reason: "stop", message: { content: "answer" } }],
+      usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8, cost: 0.00001 }
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const instance = new OrbioProvider({
+      apiKey: "test-secret", baseUrl: "https://api.orbio.so/api/v1", model: "deepseek/deepseek-v4.1-flash",
+      timeoutMs: 1000, retries: 0, reasoningEffort: "none"
+    });
+    await instance.complete({ messages: [{ role: "user", content: "hello" }], maxOutputTokens: 8192 });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.max_tokens).toBe(8192);
+    expect(body.reasoning_effort).toBe("none");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("records an aggregate reasoning token count without copying reasoning text", () => {
+    const result = parseOrbioResponse({ choices: [{ finish_reason: "length", message: { content: "", reasoning_content: "private reasoning" } }],
+      usage: { completion_tokens: 1200, completion_tokens_details: { reasoning_tokens: 1200 }, cost: 0.0003 }
+    }, "deepseek/deepseek-v4.1-flash");
+    expect(result.reasoningTokens).toBe(1200);
+    expect(result.finishReason).toBe("length");
+    expect(JSON.stringify(result)).not.toContain("private reasoning");
+  });
+
   it("sends OpenAI-compatible client-side tools only when supplied", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ finish_reason: "tool_calls", message: { content: null, tool_calls: [{ id: "one", type: "function", function: { name: "calculate", arguments: "{\"operation\":\"add\",\"a\":1,\"b\":2}" } }] } }],

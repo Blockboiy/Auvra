@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { BraveWebSearch, requiresWebResearch } from "./web-search.js";
+import { BraveWebSearch, requiresWebResearch, cleanSearchSnippet } from "./web-search.js";
 
 describe("permissioned research", () => {
+  it("removes provider HTML tags from public result text", () => {
+    expect(cleanSearchSnippet("<strong>Auvra</strong> &amp; small businesses")).toBe("Auvra & small businesses");
+    expect(cleanSearchSnippet("Online <em>ordering</em> &nbsp; pages")).toBe("Online ordering pages");
+  });
   it("detects current public-business discovery without flagging arithmetic", () => {
     expect(requiresWebResearch("Get me a list of resturants that have a checkout system within Lagos Nigeria")).toBe(true);
     expect(requiresWebResearch("Calculate (18 × 7) + 5")).toBe(false);

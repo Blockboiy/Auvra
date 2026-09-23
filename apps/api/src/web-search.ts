@@ -20,6 +20,16 @@ export function requiresWebResearch(objective: string): boolean {
     && /\b(restaurants?|resturants?|business(?:es)?|compan(?:y|ies)|vendors?|shops?|stores?|places?|websites?|sources?|news|online|nearby)\b/i.test(objective);
 }
 
+/** Display plain text from untrusted search metadata; never render provider HTML. */
+export function cleanSearchSnippet(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(?:amp|nbsp|lt|gt|quot|apos|#39);/gi, (entity) => ({
+      "&amp;": "&", "&nbsp;": " ", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&#39;": "'"
+    } as Record<string, string>)[entity.toLowerCase()] ?? " ")
+    .replace(/\s+/g, " ").trim();
+}
+
 export class BraveWebSearch {
   constructor(
     private readonly apiKey: string,
@@ -57,7 +67,7 @@ export class BraveWebSearch {
       let parsed: URL;
       try { parsed = new URL(result.url); } catch { return []; }
       if (!["https:", "http:"].includes(parsed.protocol)) return [];
-      return [{ title: result.title.slice(0, 200), url: parsed.toString(), description: typeof result.description === "string" ? result.description.slice(0, 750) : "" }];
+      return [{ title: cleanSearchSnippet(result.title).slice(0, 200), url: parsed.toString(), description: typeof result.description === "string" ? cleanSearchSnippet(result.description).slice(0, 750) : "" }];
     }).slice(0, 8);
     return {
       query: cleaned,

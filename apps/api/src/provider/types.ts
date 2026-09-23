@@ -38,6 +38,7 @@ export interface InferenceResult {
   model: string;
   attemptedModels?: string[];
   finishReason: string | null;
+  reasoningTokens?: number;
 }
 
 export interface InferenceProvider {

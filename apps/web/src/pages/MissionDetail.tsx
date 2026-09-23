@@ -8,6 +8,15 @@ import { MissionResult } from "../components/MissionResult";
 import { dateTime, ErrorState, LoadingState, money, StatusBadge } from "../components/ui";
 import { useAsync } from "../hooks/useAsync";
 
+/** Legacy saved search excerpts can contain markup; render them as plain text. */
+function cleanSourceExcerpt(value: string): string {
+  return value.replace(/<[^>]*>/g, " ")
+    .replace(/&(?:amp|nbsp|lt|gt|quot|apos|#39);/gi, (entity) => ({
+      "&amp;": "&", "&nbsp;": " ", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&#39;": "'"
+    } as Record<string, string>)[entity.toLowerCase()] ?? " ")
+    .replace(/\s+/g, " ").trim();
+}
+
 const activeStatuses = ["queued", "planning", "running"];
 
 export function MissionDetail() {
@@ -55,7 +64,7 @@ export function MissionDetail() {
           <div className="min-w-0"><h2 className="font-semibold text-ink">Sources consulted <span className="ml-2 rounded-full bg-violet/[.07] px-2.5 py-1 text-[11px] font-semibold text-violet">{sources.length} link{sources.length === 1 ? "" : "s"}</span></h2><p className="mt-1 text-xs leading-5 text-muted">Public search references · expand to review the links and source descriptions.</p></div>
           <ChevronDown aria-hidden="true" className="h-5 w-5 shrink-0 text-violet transition-transform duration-200 group-open:rotate-180" />
         </summary>
-        <ul className="divide-y divide-line/70 border-t border-line">{sources.map((source) => <li key={source.url} className="px-5 py-3 sm:px-6"><a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-2 break-words text-sm font-semibold text-violet hover:underline">{source.title}<ExternalLink className="h-3.5 w-3.5 shrink-0" /></a>{source.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{source.description}</p> : null}</li>)}</ul>
+        <ul className="divide-y divide-line/70 border-t border-line">{sources.map((source) => <li key={source.url} className="px-5 py-3 sm:px-6"><a href={source.url} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-2 break-words text-sm font-semibold text-violet hover:underline">{cleanSourceExcerpt(source.title)}<ExternalLink className="h-3.5 w-3.5 shrink-0" /></a>{source.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{cleanSourceExcerpt(source.description)}</p> : null}</li>)}</ul>
       </details> : null}
       <MissionModels mission={mission} />
       <div className="grid gap-6 xl:grid-cols-[1.2fr_.8fr]">

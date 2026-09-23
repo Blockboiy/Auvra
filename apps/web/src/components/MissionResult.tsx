@@ -87,6 +87,9 @@ export function OutputDocument({ value }: { value: string }) {
 export function MissionResult({ mission }: { mission: Mission }) {
   const [copied, setCopied] = useState(false);
   const final = mission.finalOutput?.trim();
+  const endedWithoutFinal = !final && ["failed", "budget_exhausted", "cancelled"].includes(mission.status);
+  const savedActions = mission.events.filter(event => event.type === "tool.completed").length;
+  const recordedCalls = mission.events.filter(event => event.type === "inference.completed" && event.cost?.kind === "actual").length;
   const copy = async () => {
     if (!final) return;
     try { await navigator.clipboard.writeText(final); setCopied(true); }
@@ -100,6 +103,10 @@ export function MissionResult({ mission }: { mission: Mission }) {
     </div>
     <div className="px-5 py-6 sm:px-7">
       {final ? <><div className="mb-5 flex items-center gap-2 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Final response saved</div><OutputDocument value={final} /></> : <div className="flex gap-3 text-sm"><Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-violet" /><div><p className="font-semibold text-ink">{mission.status === "failed" || mission.status === "budget_exhausted" || mission.status === "cancelled" ? "No final answer was produced" : "Auvra is working on your result"}</p><p className="mt-1 leading-6 text-muted">{mission.status === "failed" || mission.status === "budget_exhausted" || mission.status === "cancelled" ? "Any completed actions and their recorded costs remain available below. A partial result is not presented as a completed answer." : "The final response will appear here once the mission completes."}</p></div></div>}
+      {endedWithoutFinal && <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-950">
+        <p className="font-semibold">Partial work retained — not a completed answer</p>
+        <p className="mt-1">{savedActions} completed approved action{savedActions === 1 ? "" : "s"}, {recordedCalls} recorded paid inference response{recordedCalls === 1 ? "" : "s"}, and {mission.notes.length} saved note{mission.notes.length === 1 ? "" : "s"}. Only actual recorded activity is counted. Review the notes, sources and audit trail below; uncompleted conclusions have not been invented.</p>
+      </div>}
       {mission.notes.length ? <div className="mt-6 border-t border-line pt-5"><h3 className="text-xs font-bold uppercase tracking-wider text-muted">Saved mission notes</h3><ul className="mt-3 space-y-2">{mission.notes.map((note, index) => <li key={index} className="rounded-xl bg-canvas p-3 text-sm leading-6 text-ink">{note}</li>)}</ul></div> : null}
     </div>
   </section>;
