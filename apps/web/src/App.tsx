@@ -8,6 +8,7 @@ import { MissionDetail } from "./pages/MissionDetail";
 import { NewMission } from "./pages/NewMission";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ResourcesPage } from "./pages/ResourcesPage";
+import { CreativeStudio } from "./pages/CreativeStudio";
 
 function WorkspaceLayout() {
   return <AppShell><div className="animate-page-in"><Outlet /></div></AppShell>;
@@ -29,6 +30,7 @@ export function App() {
         <Route path="missions/:id" element={<MissionDetail />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="resources" element={<ResourcesPage />} />
+        <Route path="creative" element={<CreativeStudio />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="/missions/new" element={<Navigate to="/app/missions/new" replace />} />

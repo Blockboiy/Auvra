@@ -1,10 +1,11 @@
-import { Activity, ArrowUpRight, Gauge, Menu, Plus, Settings, Wallet, X } from "lucide-react";
+import { Activity, ArrowUpRight, Clapperboard, Gauge, Menu, Plus, Settings, Wallet, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
 
 const nav = [
   { to: "/app", label: "Overview", icon: Gauge, end: true },
   { to: "/app/activity", label: "Spending & activity", icon: Activity },
+  { to: "/app/creative", label: "Creative Studio", icon: Clapperboard },
   { to: "/app/resources", label: "Resources", icon: Wallet },
   { to: "/app/settings", label: "Settings", icon: Settings }
 ];

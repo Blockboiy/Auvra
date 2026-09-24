@@ -9,6 +9,7 @@ import type { InferenceProvider } from "./provider/types.js";
 import { JsonMissionRepository, type MissionRepository } from "./repository.js";
 import { ToolRegistry } from "./tools.js";
 import { BraveWebSearch } from "./web-search.js";
+import { registerCreativeStudio } from "./creative-studio.js";
 
 export interface AppDependencies {
   repository?: MissionRepository;
@@ -26,9 +27,14 @@ export function createApp(config: AppConfig, dependencies: AppDependencies = {})
   const app = express();
   app.disable("x-powered-by");
   app.use(helmet());
-  app.use(cors({ origin: config.webOrigin, methods: ["GET", "POST"] }));
+  app.use(cors({ origin: config.webOrigin, methods: ["GET", "POST", "PATCH"] }));
+  // Creative Studio accepts one bounded base64 product image; normal API requests retain 32kb limit.
+  app.use("/api/creative", (_request, response, next) => { response.setHeader("Cache-Control", "no-store"); next(); });
+  app.use("/api/creative", express.json({ limit: "12mb" }));
   app.use(express.json({ limit: "32kb" }));
   app.use("/api", (_request, response, next) => { response.setHeader("Cache-Control", "no-store"); next(); });
+
+  registerCreativeStudio(app, config, provider);
 
   app.get("/api/health", (_request, response) => response.json({ status: "ok", service: "auvra-api" }));
   app.get("/api/provider/status", async (_request, response, next) => {

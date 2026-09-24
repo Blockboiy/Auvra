@@ -1,4 +1,5 @@
 import type { ApiError, CreateMissionInput, DashboardSummary, Mission, ProviderStatus } from "@auvra/shared";
+import type { CreativeInput, CreativeJob, CreativeProjectSummary } from "./creative-types";
 
 export class ApiClientError extends Error {
   constructor(message: string, readonly code: string, readonly details?: unknown) {
@@ -31,5 +32,12 @@ export const api = {
   createMission: (input: CreateMissionInput) => request<Mission>("/missions", { method: "POST", body: JSON.stringify(input) }),
   startMission: (id: string) => request<Mission>(`/missions/${encodeURIComponent(id)}/start`, { method: "POST" }),
   cancelMission: (id: string) => request<Mission>(`/missions/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
-  providerStatus: () => request<ProviderStatus>("/provider/status")
+  providerStatus: () => request<ProviderStatus>("/provider/status"),
+  creativeStatus: () => request<{ enabled: boolean; mode: string; externalGeneration: boolean }>("/creative/status"),
+  creativeProjects: () => request<CreativeProjectSummary[]>("/creative/projects"),
+  createCreativeStoryboard: (input: CreativeInput) => request<CreativeJob>("/creative/storyboard", { method: "POST", body: JSON.stringify(input) }),
+  creativeProject: (id: string) => request<CreativeJob>(`/creative/${encodeURIComponent(id)}`),
+  editCreativeStoryboard: (id: string, scenes: string[], imageIndexes: number[], secondImageIndexes: Array<number | null>) => request<CreativeJob>(`/creative/${encodeURIComponent(id)}/storyboard`, { method: "PATCH", body: JSON.stringify({ scenes, imageIndexes, secondImageIndexes }) }),
+  recoverCreativeStoryboard: (id: string) => request<CreativeJob>(`/creative/${encodeURIComponent(id)}/manual-storyboard`, { method: "POST" }),
+  renderCreativeVideo: (id: string, captionOverlays: string[]) => request<CreativeJob>(`/creative/${encodeURIComponent(id)}/render`, { method: "POST", body: JSON.stringify({ captionOverlays }) })
 };

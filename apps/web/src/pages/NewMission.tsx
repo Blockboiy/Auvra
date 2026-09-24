@@ -49,6 +49,7 @@ export function NewMission() {
       <Link to="/app" className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-muted hover:text-violet"><ArrowLeft className="h-4 w-4" /> Back to overview</Link>
       <PageHeader eyebrow="New mission" title={retry ? "Review a new attempt." : "Define the outcome."} description="Auvra will not begin until you review the economic limit, approve permissions, and explicitly start the mission." />
       {retry ? <p className="mb-5 rounded-xl border border-violet/15 bg-violet/[.05] px-4 py-3 text-sm text-ink">Your previous objective and permissions have been copied here. This will create a separate mission; nothing runs until you approve it.</p> : null}
+      {/\b(video|videos|reel|advert|commercial|promo)\b/i.test(objective) ? <div className="mb-5 rounded-xl border border-violet/20 bg-violet/[.05] p-4 text-xs leading-6 text-ink"><strong>Creating a marketing video?</strong> Standard text missions do not export MP4 files. Use <Link to="/app/creative" className="font-semibold text-violet underline">Creative Studio</Link> to upload a product photo, approve a storyboard and render a video.</div> : null}
       <form onSubmit={submit} className="space-y-5">
         <section className="card p-5 sm:p-7">
           <div className="mb-5 flex items-start gap-3"><span className="rounded-xl bg-violet/[.08] p-2.5 text-violet"><Sparkles className="h-5 w-5" /></span><div><h2 className="font-semibold text-ink">Mission objective</h2><p className="mt-1 text-sm text-muted">Be specific about the result you want.</p></div></div>
