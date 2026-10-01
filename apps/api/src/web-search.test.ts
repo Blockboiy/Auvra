@@ -40,6 +40,27 @@ describe("permissioned research", () => {
     expect((await new FallbackWebSearch(brave, orbio).search("test query", budget())).provider).toBe("brave");
     expect(orbio.search).not.toHaveBeenCalled();
   });
+  it("uses Orbio with the same budget context when Brave returns zero valid results", async () => {
+    const brave: WebSearchProvider = { configured: true, search: vi.fn(async () => ({ ...publicResult("brave"), results: [] })) };
+    const orbio: WebSearchProvider = { configured: true, search: vi.fn(async (_query, guard) => {
+      await guard!.recordSpend({ provider: "orbio-firecrawl", tool: "web.search", units: 1, amountUsd: 0.0011, source: "provider" });
+      return publicResult("orbio-firecrawl");
+    }) };
+    const guard = budget();
+    const response = await new FallbackWebSearch(brave, orbio).search("test query", guard);
+    expect(response.provider).toBe("orbio-firecrawl");
+    expect(orbio.search).toHaveBeenCalledWith("test query", guard);
+    expect(guard.recordSpend).toHaveBeenCalledTimes(1);
+    expect(guard.recordSpend).toHaveBeenCalledWith(expect.objectContaining({ tool: "web.search", amountUsd: 0.0011 }));
+  });
+  it("returns an empty Orbio result once without recursively falling back", async () => {
+    const brave: WebSearchProvider = { configured: true, search: vi.fn(async () => ({ ...publicResult("brave"), results: [] })) };
+    const orbio: WebSearchProvider = { configured: true, search: vi.fn(async () => ({ ...publicResult("orbio-firecrawl"), results: [] })) };
+    const response = await new FallbackWebSearch(brave, orbio).search("test query", budget());
+    expect(response).toMatchObject({ provider: "orbio-firecrawl", results: [] });
+    expect(brave.search).toHaveBeenCalledTimes(1);
+    expect(orbio.search).toHaveBeenCalledTimes(1);
+  });
   it("uses Orbio when Brave is unconfigured, rate limited, or unreachable", async () => {
     const braves: WebSearchProvider[] = [
       { configured: false, search: vi.fn() },

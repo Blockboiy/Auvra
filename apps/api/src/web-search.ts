@@ -196,7 +196,12 @@ export class FallbackWebSearch implements WebSearchProvider {
   get configured(): boolean { return this.primary.configured || this.fallback.configured; }
   async search(query: string, budget?: WebToolBudgetContext): Promise<PublicSearchResponse> {
     cleanQuery(query);
-    if (this.primary.configured) { try { return await this.primary.search(query, budget); } catch { /* use documented fallback */ } }
+    if (this.primary.configured) {
+      try {
+        const result = await this.primary.search(query, budget);
+        if (result.results.length > 0 || !this.fallback.configured) return result;
+      } catch { /* use documented fallback */ }
+    }
     if (!this.fallback.configured) throw new Error("Web research is unavailable: neither Brave nor Orbio web search is configured.");
     return this.fallback.search(query, budget);
   }

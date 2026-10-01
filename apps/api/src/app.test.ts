@@ -3,7 +3,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "./app.js";
 import { getConfig } from "./config.js";
-import { ProviderError, type InferenceProvider, type InferenceRequest } from "./provider/types.js";
+import { ProviderError, type InferenceProvider, type InferenceRequest, type InferenceResult } from "./provider/types.js";
 import { MemoryMissionRepository } from "./repository.js";
 import { BraveWebSearch, type WebScrapeProvider, type WebSearchProvider } from "./web-search.js";
 
@@ -36,7 +36,7 @@ const setup = (provider: InferenceProvider, values: { maxSteps?: number; preflig
     webSearch: { apiKey: "" },
     provider: { apiKey: "test-key", baseUrl: "https://example.invalid/api/v1", model: "mock/orbio", timeoutMs: 500, retries: 0 }
   });
-  return createApp(config, { repository: new MemoryMissionRepository(), provider });
+  return { ...createApp(config, { repository: new MemoryMissionRepository(), provider }), config };
 };
 
 const createMission = async (app: ReturnType<typeof createApp>["app"], values: Record<string, unknown> = {}) => {
@@ -272,10 +272,37 @@ describe("mission API and executor", () => {
     expect(provider.calls).toBe(3); // Never silently repeat a possibly charged response.
   });
 
-  it("does not mark a truncated non-empty response as complete", async () => {
+  it("continues and assembles a truncated non-empty final response with final-output allowance and no tools", async () => {
     const provider = new ScriptedProvider([
       result({ text: '{"summary":"finish","steps":["report"]}' }),
-      result({ text: "An unfinished [source](https://example.org", finishReason: "length" })
+      result({ text: "Chapter 1: Introduction.", finishReason: "length", usage: { input: 20, output: 30, total: 50 }, actualCostUsd: 0.003 }),
+      async (call) => {
+        expect(call.tools).toEqual([]);
+        expect(call.maxOutputTokens).toBe(config.finalOutputTokens);
+        expect(call.messages).toEqual(expect.arrayContaining([
+          expect.objectContaining({ role: "assistant", content: "Chapter 1: Introduction." }),
+          expect.objectContaining({ role: "system", content: expect.stringContaining("Continue exactly where it stopped. Do not restart or repeat earlier text.") })
+        ]));
+        return result({ text: " Chapter 2: Complete.", usage: { input: 40, output: 25, total: 65 }, actualCostUsd: 0.004 });
+      }
+    ]);
+    const { app, config } = setup(provider, { maxSteps: 1 });
+    const created = await createMission(app);
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const completed = await waitForTerminal(app, created.body.id);
+    expect(completed.status).toBe("completed");
+    expect(completed.finalOutput).toBe("Chapter 1: Introduction. Chapter 2: Complete.");
+    expect(completed.actualCostUsd).toBeCloseTo(0.008);
+    expect(completed.usage).toEqual({ input: 70, output: 60, total: 130 });
+    expect(provider.calls).toBe(3);
+  });
+
+  it("fails after at most two continuation calls when output remains truncated", async () => {
+    const provider = new ScriptedProvider([
+      result({ text: '{"summary":"finish","steps":["report"]}' }),
+      result({ text: "Part one.", finishReason: "length" }),
+      result({ text: " Part two.", finishReason: "max_tokens" }),
+      result({ text: " Part three, still unfinished.", finishReason: "length" })
     ]);
     const { app } = setup(provider, { maxSteps: 1 });
     const created = await createMission(app);
@@ -283,8 +310,31 @@ describe("mission API and executor", () => {
     const stopped = await waitForTerminal(app, created.body.id);
     expect(stopped.status).toBe("failed");
     expect(stopped.finalOutput).toBeUndefined();
-    expect(stopped.error).toContain("stopped before a complete answer");
-    expect(provider.calls).toBe(2);
+    expect(stopped.error).toContain("after 2 bounded continuation calls");
+    expect(stopped.actualCostUsd).toBeCloseTo(0.004);
+    expect(stopped.usage).toEqual({ input: 40, output: 20, total: 60 });
+    expect(provider.calls).toBe(4);
+  });
+
+  it("passes the complete continued executor draft to dedicated final synthesis", async () => {
+    const provider = new ScriptedProvider([
+      result({ text: '{"summary":"finish","steps":["draft","synthesize"]}' }),
+      result({ text: "Draft chapter one.", finishReason: "length" }),
+      result({ text: " Draft chapter two." }),
+      async (call) => {
+        expect(call.tools).toEqual([]);
+        expect(call.preferredModel).toBe("mock/orbio");
+        expect(call.messages.find((message) => message.role === "user")?.content).toContain("Executor draft:\nDraft chapter one. Draft chapter two.");
+        return result({ text: "Synthesized complete report." });
+      }
+    ]);
+    const { app } = setup(provider, { maxSteps: 1 });
+    const created = await createMission(app, { modelRoute: { final: "mock/orbio" } });
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const completed = await waitForTerminal(app, created.body.id);
+    expect(completed.status).toBe("completed");
+    expect(completed.finalOutput).toBe("Synthesized complete report.");
+    expect(provider.calls).toBe(4);
   });
 
   it("gives planning and final synthesis separate output allowances", async () => {
