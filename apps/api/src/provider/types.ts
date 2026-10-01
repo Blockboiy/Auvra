@@ -2,7 +2,10 @@ import type { ProviderCheck, TokenUsage } from "@auvra/shared";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | null | Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string; detail?: "low" | "high" | "auto" } }
+  >;
   tool_call_id?: string;
   tool_calls?: ProviderToolCall[];
 }

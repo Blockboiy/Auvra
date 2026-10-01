@@ -20,6 +20,20 @@ export interface AppConfig {
   executionOutputTokens: number;
   planningOutputTokens: number;
   finalOutputTokens: number;
+  creative: {
+    dataFile: string;
+    assetDir: string;
+    directorModel: string;
+    visionModel: string;
+    videoGenerationEnabled: boolean;
+    videoPriceSafetyMultiplier: number;
+    maxAssetFiles: number;
+    maxAssetBytes: number;
+    maxAssetTotalBytes: number;
+    pollIntervalMs: number;
+    pollLifetimeMs: number;
+    pollConcurrency: number;
+  };
   webSearch?: { apiKey: string };
   provider: {
     apiKey: string;
@@ -44,6 +58,20 @@ export function getConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     executionOutputTokens: Math.min(4_096, Math.floor(numberFromEnv("AUVRA_EXECUTION_OUTPUT_TOKENS", 2_048, 701))),
     planningOutputTokens: Math.min(8_192, Math.floor(numberFromEnv("AUVRA_PLANNING_OUTPUT_TOKENS", 3_072, 512))),
     finalOutputTokens: Math.min(16_384, Math.floor(numberFromEnv("AUVRA_FINAL_OUTPUT_TOKENS", 8_192, 1_200))),
+    creative: {
+      dataFile: resolve(process.env.AUVRA_CREATIVE_DATA_FILE ?? "./data/creative-projects.json"),
+      assetDir: resolve(process.env.AUVRA_CREATIVE_ASSET_DIR ?? "./data/creative-assets"),
+      directorModel: process.env.AUVRA_CREATIVE_DIRECTOR_MODEL?.trim() || process.env.ORBIO_MODEL?.trim() || "deepseek/deepseek-v4.1-flash",
+      visionModel: process.env.AUVRA_CREATIVE_VISION_MODEL?.trim() || "google/gemini-3.8-flash",
+      videoGenerationEnabled: process.env.AUVRA_VIDEO_GENERATION_ENABLED?.trim().toLowerCase() === "true",
+      videoPriceSafetyMultiplier: Math.min(2, numberFromEnv("AUVRA_VIDEO_PRICE_SAFETY_MULTIPLIER", 1.15, 1)),
+      maxAssetFiles: Math.min(20, Math.floor(numberFromEnv("AUVRA_CREATIVE_MAX_FILES", 8, 1))),
+      maxAssetBytes: numberFromEnv("AUVRA_CREATIVE_MAX_FILE_BYTES", 50 * 1024 * 1024, 1024),
+      maxAssetTotalBytes: numberFromEnv("AUVRA_CREATIVE_MAX_TOTAL_BYTES", 150 * 1024 * 1024, 1024),
+      pollIntervalMs: numberFromEnv("AUVRA_VIDEO_POLL_INTERVAL_MS", 10_000, 1_000),
+      pollLifetimeMs: numberFromEnv("AUVRA_VIDEO_POLL_LIFETIME_MS", 30 * 60_000, 60_000),
+      pollConcurrency: Math.min(4, Math.floor(numberFromEnv("AUVRA_VIDEO_POLL_CONCURRENCY", 2, 1)))
+    },
     webSearch: { apiKey: process.env.BRAVE_SEARCH_API_KEY?.trim() ?? "" },
     provider: {
       apiKey: process.env.ORBIO_API_KEY?.trim() ?? "",
@@ -61,6 +89,7 @@ export function getConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     ...defaults,
     ...overrides,
-    provider: { ...defaults.provider, ...overrides.provider }
+    provider: { ...defaults.provider, ...overrides.provider },
+    creative: { ...defaults.creative, ...overrides.creative }
   };
 }

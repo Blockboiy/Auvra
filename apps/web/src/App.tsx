@@ -8,6 +8,7 @@ import { MissionDetail } from "./pages/MissionDetail";
 import { NewMission } from "./pages/NewMission";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ResourcesPage } from "./pages/ResourcesPage";
+import { CreativeStudio } from "./pages/CreativeStudio";
 
 function WorkspaceLayout() {
   return <AppShell><div className="animate-page-in"><Outlet /></div></AppShell>;
@@ -30,6 +31,7 @@ export function App() {
         <Route path="activity" element={<ActivityPage />} />
         <Route path="resources" element={<ResourcesPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="creative" element={<CreativeStudio />} />
       </Route>
       <Route path="/missions/new" element={<Navigate to="/app/missions/new" replace />} />
       <Route path="/missions/:id" element={<LegacyMissionRedirect />} />

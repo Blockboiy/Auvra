@@ -1,0 +1,33 @@
+import type { BrandSystem, CreativeBrief, CreativePlan, CreateCreativeProjectInput } from "@auvra/shared";
+
+const object = (value: unknown): Record<string, unknown> | undefined => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+const text = (value: unknown, max = 800) => typeof value === "string" && value.trim().length > 0 && value.trim().length <= max ? value.trim() : undefined;
+const texts = (value: unknown, maxItems = 30) => Array.isArray(value) && value.length <= maxItems && value.every((item) => typeof item === "string" && item.length <= 500) ? value.map((item) => item.trim()) : undefined;
+
+export const defaultBrandSystem = (): BrandSystem => ({ primaryColor: "#6D35F7", accentColors: ["#9B7CFF"], backgroundPreference: "dark", typographyDirection: "Confident geometric sans", cornerLanguage: "Softly rounded", visualKeywords: ["precise", "premium", "kinetic"], prohibitedMutations: ["Do not alter logo geometry", "Do not change exact product claims or numeric metrics"] });
+
+export function parseProjectInput(value: unknown): CreateCreativeProjectInput | undefined {
+  const input = object(value); if (!input) return undefined; const brief = object(input.brief); const name = text(input.name, 100);
+  if (!name || !brief) return undefined;
+  const objective = text(brief.objective); const audience = text(brief.audience); const keyMessage = text(brief.keyMessage); const toneNotes = text(brief.toneNotes);
+  if (!objective || !audience || !keyMessage || !toneNotes || ![15, 30].includes(Number(brief.durationSeconds)) || !["16:9", "9:16"].includes(String(brief.aspectRatio)) || !["standard", "premium"].includes(String(brief.qualityTarget))) return undefined;
+  const parsedBrief: CreativeBrief = { objective, audience, keyMessage, durationSeconds: Number(brief.durationSeconds) as 15 | 30, aspectRatio: brief.aspectRatio as "16:9" | "9:16", toneNotes, qualityTarget: brief.qualityTarget as "standard" | "premium", ...(text(brief.cta, 200) ? { cta: text(brief.cta, 200)! } : {}), ...(text(brief.referenceAssetId, 100) ? { referenceAssetId: text(brief.referenceAssetId, 100)! } : {}) };
+  return { name, brief: parsedBrief, ...(object(input.brandSystem) ? { brandSystem: input.brandSystem as Partial<BrandSystem> } : {}) };
+}
+
+export function parseCreativePlan(value: unknown): CreativePlan | undefined {
+  const plan = object(value); const brand = object(plan?.brandSystem); const audio = object(plan?.audioPlan); if (!plan || !brand || !audio || !Array.isArray(plan.shots)) return undefined;
+  if (![15, 30].includes(Number(plan.durationSeconds)) || !["16:9", "9:16"].includes(String(plan.aspectRatio)) || plan.shots.length < 1 || plan.shots.length > 20) return undefined;
+  const modes = ["motion_graphic", "generative_video", "product_proof", "hybrid"];
+  const shots = plan.shots.map(object); if (shots.some((shot) => !shot)) return undefined;
+  const parsedShots = shots.map((shot) => {
+    const duration = Number(shot!.durationSeconds); const exactCopy = texts(shot!.exactCopy); const assetRefs = texts(shot!.assetRefs); const constraints = texts(shot!.brandConstraints);
+    if (!text(shot!.id, 100) || !Number.isInteger(Number(shot!.order)) || !(duration > 0 && duration <= 15) || !text(shot!.purpose) || !text(shot!.visualConcept) || !modes.includes(String(shot!.visualMode)) || !exactCopy || !assetRefs || !text(shot!.motionDirection) || !text(shot!.transitionIn) || !text(shot!.transitionOut) || !constraints || typeof shot!.allowGenerativeVideo !== "boolean") return undefined;
+    if (["generative_video", "hybrid"].includes(String(shot!.visualMode)) && shot!.allowGenerativeVideo && (!text(shot!.generativePrompt) || !text(shot!.generativeReason))) return undefined;
+    return { id: String(shot!.id), order: Number(shot!.order), purpose: String(shot!.purpose), durationSeconds: duration, exactCopy, visualConcept: String(shot!.visualConcept), visualMode: shot!.visualMode as CreativePlan["shots"][number]["visualMode"], assetRefs, motionDirection: String(shot!.motionDirection), transitionIn: String(shot!.transitionIn), transitionOut: String(shot!.transitionOut), ...(text(shot!.generativePrompt) ? { generativePrompt: text(shot!.generativePrompt)! } : {}), ...(text(shot!.recommendedCapability) ? { recommendedCapability: text(shot!.recommendedCapability)! } : {}), ...(text(shot!.audioCue) ? { audioCue: text(shot!.audioCue)! } : {}), brandConstraints: constraints, ...(text(shot!.generativeReason) ? { generativeReason: text(shot!.generativeReason)! } : {}), allowGenerativeVideo: shot!.allowGenerativeVideo as boolean };
+  });
+  if (parsedShots.some((shot) => !shot) || Math.abs(parsedShots.reduce((sum, shot) => sum + shot!.durationSeconds, 0) - Number(plan.durationSeconds)) > 0.01) return undefined;
+  const required = [text(plan.conceptTitle), text(plan.conceptSummary), text(plan.openingHook), text(plan.narrativeArc), text(brand.primaryColor), text(brand.typographyDirection), text(brand.cornerLanguage)]; if (required.some((item) => !item)) return undefined;
+  const accentColors = texts(brand.accentColors); const visualKeywords = texts(brand.visualKeywords); const prohibitedMutations = texts(brand.prohibitedMutations); const foley = texts(audio.foley); const uiCues = texts(audio.uiCues); const transitions = texts(audio.transitions); const risks = texts(plan.qualityRisks); if (!accentColors || !visualKeywords || !prohibitedMutations || !foley || !uiCues || !transitions || !risks) return undefined;
+  return { version: Number(plan.version) || 1, conceptTitle: required[0]!, conceptSummary: required[1]!, openingHook: required[2]!, narrativeArc: required[3]!, brandSystem: { primaryColor: required[4]!, accentColors, backgroundPreference: ["light", "dark", "adaptive"].includes(String(brand.backgroundPreference)) ? brand.backgroundPreference as BrandSystem["backgroundPreference"] : "dark", typographyDirection: required[5]!, cornerLanguage: required[6]!, visualKeywords, prohibitedMutations, ...(text(brand.logoAssetId) ? { logoAssetId: text(brand.logoAssetId)! } : {}), ...(text(brand.wordmarkAssetId) ? { wordmarkAssetId: text(brand.wordmarkAssetId)! } : {}) }, durationSeconds: Number(plan.durationSeconds) as 15 | 30, aspectRatio: plan.aspectRatio as "16:9" | "9:16", shots: parsedShots as CreativePlan["shots"], audioPlan: { foley, uiCues, transitions, ...(text(audio.musicBed) ? { musicBed: text(audio.musicBed)! } : {}), ...(text(audio.voiceover) ? { voiceover: text(audio.voiceover)! } : {}) }, ...(text(plan.closingCTA) ? { closingCTA: text(plan.closingCTA)! } : {}), qualityRisks: risks, createdAt: text(plan.createdAt) ?? new Date().toISOString() };
+}
