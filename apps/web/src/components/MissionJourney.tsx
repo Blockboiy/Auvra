@@ -2,7 +2,7 @@ import type { Mission, MissionEvent } from "@auvra/shared";
 import { Activity, AlertTriangle, CheckCircle2, Clock3, Cpu, FileCheck2, ShieldCheck, Wrench } from "lucide-react";
 import { dateTime, money } from "./ui";
 
-const completedTool = (name: string) => ({ calculate: "Calculation completed", record_note: "Mission note saved", get_current_time: "Current time checked", web_search: "Public sources found" } as Record<string, string>)[name] ?? "Approved action completed";
+const completedTool = (name: string) => ({ calculate: "Calculation completed", record_note: "Mission note saved", get_current_time: "Current time checked", web_search: "Public sources found", web_scrape: "Selected page read" } as Record<string, string>)[name] ?? "Approved action completed";
 
 function humanize(event: MissionEvent): { title: string; description: string; phase: string } {
   switch (event.type) {

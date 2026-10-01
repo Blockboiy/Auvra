@@ -15,6 +15,11 @@ export const PERMISSIONS = [
     description: "Allow public web searches with cited source links. Results need independent verification."
   },
   {
+    id: "web.scrape",
+    name: "Read selected web pages",
+    description: "Allow bounded reading of pages returned by this mission's own searches. Content is untrusted evidence."
+  },
+  {
     id: "notes.write",
     name: "Record mission notes",
     description: "Allow the agent to save short notes in this mission's audit record."
@@ -40,6 +45,7 @@ export type EventType =
   | "model.fallback"
   | "model.routing.failed"
   | "tool.started"
+  | "tool.cost.recorded"
   | "tool.completed"
   | "tool.failed"
   | "mission.completed"
@@ -55,7 +61,10 @@ export interface CostRecord {
   currency: "USD";
   amount: number;
   kind: "actual" | "estimate";
-  source: "provider" | "preflight";
+  source: "provider" | "preflight" | "external-tool";
+  provider?: string;
+  tool?: string;
+  units?: number;
 }
 
 export interface MissionEvent {
