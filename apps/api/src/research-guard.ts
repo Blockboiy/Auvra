@@ -1,5 +1,6 @@
 /** Compact, source-preserving evidence for paid inference. Full tool results stay in the mission audit log. */
 export const MAX_PUBLIC_SEARCH_CALLS = 3;
+export const MAX_PUBLIC_SCRAPE_CALLS = 2;
 
 export interface CompactSearchEvidence {
   query: string;

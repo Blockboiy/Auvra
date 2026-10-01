@@ -8,19 +8,22 @@ import { OrbioProvider } from "./provider/orbio.js";
 import type { InferenceProvider } from "./provider/types.js";
 import { JsonMissionRepository, type MissionRepository } from "./repository.js";
 import { ToolRegistry } from "./tools.js";
-import { BraveWebSearch } from "./web-search.js";
+import { BraveWebSearch, FallbackWebSearch, OrbioFirecrawlWebResearch, type WebScrapeProvider, type WebSearchProvider } from "./web-search.js";
 
 export interface AppDependencies {
   repository?: MissionRepository;
   provider?: InferenceProvider;
-  searchProvider?: BraveWebSearch;
+  searchProvider?: WebSearchProvider;
+  scrapeProvider?: WebScrapeProvider;
 }
 
 export function createApp(config: AppConfig, dependencies: AppDependencies = {}) {
   const repository = dependencies.repository ?? new JsonMissionRepository(config.dataFile);
   const provider = dependencies.provider ?? new OrbioProvider(config.provider);
+  const orbioWeb = new OrbioFirecrawlWebResearch(config.provider.apiKey, config.provider.baseUrl);
+  const searchProvider = dependencies.searchProvider ?? new FallbackWebSearch(new BraveWebSearch(config.webSearch?.apiKey ?? ""), orbioWeb);
   const service = new MissionService(repository, config, provider);
-  const runner = new AgentRunner(repository, provider, new ToolRegistry(dependencies.searchProvider ?? new BraveWebSearch(config.webSearch?.apiKey ?? "")), config);
+  const runner = new AgentRunner(repository, provider, new ToolRegistry(searchProvider, dependencies.scrapeProvider ?? orbioWeb), config);
   service.attachRunner(runner);
 
   const app = express();

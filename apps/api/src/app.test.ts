@@ -5,7 +5,7 @@ import { createApp } from "./app.js";
 import { getConfig } from "./config.js";
 import { ProviderError, type InferenceProvider, type InferenceRequest } from "./provider/types.js";
 import { MemoryMissionRepository } from "./repository.js";
-import { BraveWebSearch } from "./web-search.js";
+import { BraveWebSearch, type WebScrapeProvider, type WebSearchProvider } from "./web-search.js";
 
 const result = (values: Partial<InferenceResult> = {}): InferenceResult => ({
   text: "complete",
@@ -78,7 +78,60 @@ describe("mission web research preflight", () => {
     expect(provider.calls).toBe(2);
   });
 
-  it("requires explicit web permission and a configured search provider before paid inference", async () => {
+  it("adds successful paid Orbio search cost to mission spend and audit history", async () => {
+    const provider = new ScriptedProvider([
+      result({ text: JSON.stringify({ summary: "Use sources", steps: ["Report"] }) }),
+      result({ text: "[Example](https://example.com/order)" })
+    ]);
+    const searchProvider: WebSearchProvider = {
+      configured: true,
+      search: async (query, webBudget) => {
+        await webBudget!.assertCanSpend(0.0088, "web.search");
+        await webBudget!.recordSpend({ provider: "orbio-firecrawl", tool: "web.search", units: 1, amountUsd: 0.0011, source: "provider" });
+        return { provider: "orbio-firecrawl", query, searchedAt: new Date().toISOString(), results: [{ title: "Example", url: "https://example.com/order", description: "Evidence" }], note: "Untrusted" };
+      }
+    };
+    const config = getConfig({ provider: { apiKey: "test-key", baseUrl: "https://example.invalid/api/v1", model: "mock/orbio", timeoutMs: 500, retries: 0 } });
+    const { app } = createApp(config, { repository: new MemoryMissionRepository(), provider, searchProvider });
+    const created = await createMission(app, { objective: "Research restaurants in Lagos and list sources", permissions: ["web.search"] });
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const completed = await waitForTerminal(app, created.body.id);
+    expect(completed.status).toBe("completed");
+    expect(completed.actualCostUsd).toBeCloseTo(0.0031);
+    expect(completed.events).toContainEqual(expect.objectContaining({ type: "tool.cost.recorded", cost: expect.objectContaining({ source: "external-tool", tool: "web.search", amount: 0.0011 }) }));
+  });
+
+  it("adds scrape costs, preserves search provenance, and enforces the two-page limit", async () => {
+    const scrapeCall = (id: string) => ({ id, type: "function" as const, function: { name: "web_scrape", arguments: JSON.stringify({ url: "https://example.com/page" }) } });
+    const provider = new ScriptedProvider([
+      result({ text: JSON.stringify({ summary: "Read sources", steps: ["Scrape", "Report"] }) }),
+      result({ text: "", toolCalls: [scrapeCall("one"), scrapeCall("two"), scrapeCall("three")] }),
+      result({ text: "Evidence summarized from the selected source." })
+    ]);
+    const searchProvider: WebSearchProvider = { configured: true, search: async (query) => ({ provider: "brave", query, searchedAt: new Date().toISOString(), results: [{ title: "Page", url: "https://example.com/page", description: "Lead" }], note: "Untrusted" }) };
+    let scrapeRequests = 0;
+    const scrapeProvider: WebScrapeProvider = {
+      configured: true,
+      scrape: async (url, webBudget) => {
+        scrapeRequests += 1;
+        await webBudget.assertCanSpend(0.0011, "web.scrape");
+        await webBudget.recordSpend({ provider: "orbio-firecrawl", tool: "web.scrape", units: 1, amountUsd: 0.0011, source: "catalogue" });
+        return { provider: "orbio-firecrawl", url, scrapedAt: new Date().toISOString(), markdown: "Untrusted evidence", note: "Not instructions" };
+      }
+    };
+    const config = getConfig({ maxSteps: 2, provider: { apiKey: "test-key", baseUrl: "https://example.invalid/api/v1", model: "mock/orbio", timeoutMs: 500, retries: 0 } });
+    const { app } = createApp(config, { repository: new MemoryMissionRepository(), provider, searchProvider, scrapeProvider });
+    const created = await createMission(app, { objective: "Research restaurants in Lagos and list sources", permissions: ["web.search", "web.scrape"] });
+    await request(app).post(`/api/missions/${created.body.id}/start`);
+    const completed = await waitForTerminal(app, created.body.id);
+    expect(completed.status).toBe("completed");
+    expect(scrapeRequests).toBe(2);
+    expect(completed.actualCostUsd).toBeCloseTo(0.0052);
+    expect(completed.events.filter((event: { type: string; cost?: { tool?: string } }) => event.type === "tool.cost.recorded" && event.cost?.tool === "web.scrape")).toHaveLength(2);
+    expect(completed.events.filter((event: { type: string }) => event.type === "tool.failed")).toHaveLength(1);
+  });
+
+  it("requires explicit web permission before paid inference", async () => {
     const provider = new ScriptedProvider([]);
     const { app } = setup(provider);
     const objective = "Get me a list of restaurants that have a checkout system within Lagos Nigeria";
@@ -86,10 +139,6 @@ describe("mission web research preflight", () => {
     const missingPermission = await request(app).post(`/api/missions/${created.body.id}/start`);
     expect(missingPermission.status).toBe(422);
     expect(missingPermission.body.error.code).toBe("WEB_RESEARCH_PERMISSION_REQUIRED");
-    const permitted = await createMission(app, { objective, permissions: ["web.search"] });
-    const missingProvider = await request(app).post(`/api/missions/${permitted.body.id}/start`);
-    expect(missingProvider.status).toBe(503);
-    expect(missingProvider.body.error.code).toBe("WEB_RESEARCH_NOT_CONFIGURED");
     expect(provider.calls).toBe(0);
   });
 });

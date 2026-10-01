@@ -93,8 +93,8 @@ export class MissionService {
       if (requiresWebResearch(mission.objective) && !mission.permissions.includes("web.search")) {
         throw new DomainError("This objective needs current public information. Approve Research the public web before starting.", "WEB_RESEARCH_PERMISSION_REQUIRED", 422);
       }
-      if (mission.permissions.includes("web.search") && !this.config.webSearch?.apiKey) {
-        throw new DomainError("Web research is not configured. Add BRAVE_SEARCH_API_KEY to the server .env first.", "WEB_RESEARCH_NOT_CONFIGURED", 503);
+      if (mission.permissions.includes("web.search") && !this.config.webSearch?.apiKey && !this.config.provider.apiKey) {
+        throw new DomainError("Web research is not configured. Configure Brave or Orbio on the server first.", "WEB_RESEARCH_NOT_CONFIGURED", 503);
       }
       const reserve = this.config.preflightCostUsd * Math.min(4, Math.max(1, new Set([this.config.provider.model, ...(this.config.provider.models ?? [])]).size));
       if (mission.budgetUsd < reserve) throw new DomainError(`Budget must cover the $${reserve.toFixed(6)} provider-call reserve.`, "INSUFFICIENT_BUDGET", 422);
