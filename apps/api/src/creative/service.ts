@@ -76,6 +76,39 @@ function localPlan(project: CreativeProject): CreativePlan {
 
 const jsonFromText = (text: string): unknown => { const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? text; const first = fenced.indexOf("{"); const last = fenced.lastIndexOf("}"); if (first < 0 || last <= first) return undefined; try { return JSON.parse(fenced.slice(first, last + 1)); } catch { return undefined; } };
 
+const v1TextToVideoModes = new Set(["cinematic_scene", "product_lifestyle", "social_clip", "visual_narrative"]);
+
+/** The V1 editor exposes one shot. Collapse legacy plans at the save boundary so
+ * quote and submission cannot select a different stale generative shot. */
+function normalizeV1Plan(project: CreativeProject, plan: CreativePlan): CreativePlan {
+  if (!project.brief.creationMode || !v1TextToVideoModes.has(project.brief.creationMode)) return plan;
+  const source = plan.shots[0];
+  if (!source) return plan;
+  const prompt = (source.generativePrompt ?? source.visualConcept).trim();
+  const durationSeconds = project.brief.durationSeconds;
+  return {
+    ...plan,
+    durationSeconds,
+    aspectRatio: project.brief.aspectRatio,
+    openingHook: prompt,
+    shots: [{ ...source, order: 1, durationSeconds, visualConcept: prompt, generativePrompt: prompt, visualMode: "generative_video", allowGenerativeVideo: true }]
+  };
+}
+
+const isNormalizedV1Plan = (project: CreativeProject, plan: CreativePlan): boolean => {
+  if (!project.brief.creationMode || !v1TextToVideoModes.has(project.brief.creationMode)) return true;
+  const shot = plan.shots[0];
+  return plan.shots.length === 1 && shot?.order === 1 && shot.visualMode === "generative_video" && shot.allowGenerativeVideo === true && shot.generativePrompt === shot.visualConcept.trim() && plan.durationSeconds === project.brief.durationSeconds && plan.aspectRatio === project.brief.aspectRatio;
+};
+
+function assertGenerationShotUnambiguous(project: CreativeProject): void {
+  if (!project.plan) return;
+  const generative = project.plan.shots.filter((shot) => shot.allowGenerativeVideo && ["generative_video", "hybrid"].includes(shot.visualMode));
+  if ((project.brief.creationMode && v1TextToVideoModes.has(project.brief.creationMode) && project.plan.shots.length !== 1) || (!project.brief.creationMode && generative.length > 1)) {
+    throw new DomainError("The active generation shot is ambiguous. Save the direction again before requesting a quote or generation.", "ACTIVE_GENERATION_SHOT_AMBIGUOUS", 422);
+  }
+}
+
 export class CreativeService {
   private polling = new Set<string>();
   private submittingProjects = new Set<string>();
@@ -85,7 +118,16 @@ export class CreativeService {
   runtimeStatus() { return { videoGenerationEnabled: this.config.creative.videoGenerationEnabled }; }
   models() { return { pricingAsOf: VIDEO_PRICING_AS_OF, generationEnabled: this.config.creative.videoGenerationEnabled, models: publicVideoModels() }; }
   list() { return this.repository.listProjects(); }
-  async get(id: string) { const project = await this.repository.getProject(id); if (!project) throw new DomainError("Creative project not found.", "CREATIVE_PROJECT_NOT_FOUND", 404); return project; }
+  async get(id: string) {
+    const project = await this.repository.getProject(id);
+    if (!project) throw new DomainError("Creative project not found.", "CREATIVE_PROJECT_NOT_FOUND", 404);
+    if (project.plan && !isNormalizedV1Plan(project, project.plan)) {
+      const normalized = normalizeV1Plan(project, project.plan);
+      const fingerprint = planFingerprint(normalized);
+      return (await this.repository.updateProject(id, (current) => ({ ...current, plan: normalized, quotes: current.quotes.map((quote) => quote.planFingerprint === fingerprint ? quote : { ...quote, status: "invalidated" }), events: [...current.events, event(id, "creative.plan.migrated", { version: normalized.version })], updatedAt: iso() })))!;
+    }
+    return project;
+  }
   async getAsset(projectId: string, assetId: string) { const project = await this.get(projectId); const asset = project.assets.find((item) => item.id === assetId); if (!asset) throw new DomainError("Creative asset not found.", "CREATIVE_ASSET_NOT_FOUND", 404); const path = this.assetPath(asset); try { await stat(path); } catch { throw new DomainError("Creative asset content is missing.", "CREATIVE_ASSET_NOT_FOUND", 404); } return { asset, path }; }
   async create(input: unknown) {
     const parsed = parseProjectInput(input); if (!parsed) throw new DomainError("Creative project input is invalid.", "VALIDATION_ERROR", 422);
@@ -139,18 +181,28 @@ export class CreativeService {
       } catch { /* Deterministic local director remains available when inference is unavailable. */ }
       plan ??= draft;
     }
+    plan = normalizeV1Plan(project, plan);
     const fingerprint = planFingerprint(plan); const updated = await this.repository.updateProject(projectId, (current) => { const { outputAssetId: _output, finalRenderFingerprint: _renderFingerprint, finalRenderedAt: _renderedAt, ...base } = current; return { ...base, plan, quotes: current.quotes.map((quote) => quote.planFingerprint === fingerprint ? quote : { ...quote, status: "invalidated" }), events: [...current.events, event(projectId, "creative.plan.created", { version: plan!.version })], updatedAt: iso() }; }); return updated!;
   }
   async quote(projectId: string) {
-    const project = await this.get(projectId); if (!project.plan) throw new DomainError("Create a creative direction before requesting a quote.", "CREATIVE_PLAN_REQUIRED", 422);
+    let project = await this.get(projectId); if (!project.plan) throw new DomainError("Create a creative direction before requesting a quote.", "CREATIVE_PLAN_REQUIRED", 422);
+    if (!isNormalizedV1Plan(project, project.plan)) {
+      const normalized = normalizeV1Plan(project, project.plan);
+      const fingerprint = planFingerprint(normalized);
+      project = (await this.repository.updateProject(projectId, (current) => ({ ...current, plan: normalized, quotes: current.quotes.map((quote) => quote.planFingerprint === fingerprint ? quote : { ...quote, status: "invalidated" }), events: [...current.events, event(projectId, "creative.plan.migrated", { version: normalized.version })], updatedAt: iso() })))!;
+    }
+    assertGenerationShotUnambiguous(project);
     if (project.brief.creationMode === "image_to_video" && !project.assets.some((asset) => asset.id === project.brief.referenceAssetId && asset.mimeType.startsWith("image/"))) throw new DomainError("Image to Video requires one uploaded source image.", "REFERENCE_IMAGE_REQUIRED", 422);
-    const items = project.plan.shots.map((shot) => { const route = routeShot(shot, project.plan!.aspectRatio, project.brief.qualityTarget); if (route.kind === "deterministic") return { shotId: shot.id, mode: shot.visualMode, seconds: shot.durationSeconds, estimatedProviderCostUsd: 0, reservedCostUsd: 0 }; if (route.kind === "unquoteable") return { shotId: shot.id, mode: shot.visualMode, seconds: shot.durationSeconds, estimatedProviderCostUsd: 0, reservedCostUsd: 0, quoteUnavailable: true, reason: route.reason }; const estimated = quoteModel(route.model, { durationSeconds: shot.durationSeconds, aspectRatio: project.plan!.aspectRatio, resolution: route.resolution, audio: route.audio }); if (estimated === null) return { shotId: shot.id, mode: shot.visualMode, model: route.model, seconds: shot.durationSeconds, estimatedProviderCostUsd: 0, reservedCostUsd: 0, quoteUnavailable: true, reason: "Selected configuration has no trusted upper-bound price." }; return { shotId: shot.id, mode: shot.visualMode, model: route.model, seconds: shot.durationSeconds, estimatedProviderCostUsd: estimated, reservedCostUsd: Number((estimated * this.config.creative.videoPriceSafetyMultiplier).toFixed(6)) }; });
+    const plan = project.plan;
+    if (!plan) throw new DomainError("Create a creative direction before requesting a quote.", "CREATIVE_PLAN_REQUIRED", 422);
+    const normalizedPlan: CreativePlan = plan;
+    const items = normalizedPlan.shots.map((shot) => { const route = routeShot(shot, normalizedPlan.aspectRatio, project.brief.qualityTarget); if (route.kind === "deterministic") return { shotId: shot.id, mode: shot.visualMode, seconds: shot.durationSeconds, estimatedProviderCostUsd: 0, reservedCostUsd: 0 }; if (route.kind === "unquoteable") return { shotId: shot.id, mode: shot.visualMode, seconds: shot.durationSeconds, estimatedProviderCostUsd: 0, reservedCostUsd: 0, quoteUnavailable: true, reason: route.reason }; const estimated = quoteModel(route.model, { durationSeconds: shot.durationSeconds, aspectRatio: normalizedPlan.aspectRatio, resolution: route.resolution, audio: route.audio }); if (estimated === null) return { shotId: shot.id, mode: shot.visualMode, model: route.model, seconds: shot.durationSeconds, estimatedProviderCostUsd: 0, reservedCostUsd: 0, quoteUnavailable: true, reason: "Selected configuration has no trusted upper-bound price." }; return { shotId: shot.id, mode: shot.visualMode, prompt: shot.generativePrompt ?? shot.visualConcept, model: route.model, seconds: shot.durationSeconds, estimatedProviderCostUsd: estimated, reservedCostUsd: Number((estimated * this.config.creative.videoPriceSafetyMultiplier).toFixed(6)) }; });
     const unavailable = items.filter((item) => item.quoteUnavailable);
     if (unavailable.length) {
       const reasons = unavailable.map((item) => ({ shotId: item.shotId, reason: item.reason ?? "No trusted quote is available." }));
       throw new DomainError(`Video quote unavailable: ${reasons.map((item) => `shot ${item.shotId}: ${item.reason}`).join("; ")}`, "VIDEO_QUOTE_UNAVAILABLE", 422, { shots: reasons });
     }
-    const now = iso(); const quote: CreativeQuote = { id: randomUUID(), projectId, planFingerprint: planFingerprint(project.plan), version: 1, items, estimatedProviderCostUsd: Number(items.reduce((sum, item) => sum + item.estimatedProviderCostUsd, 0).toFixed(6)), reservedCostUsd: Number(items.reduce((sum, item) => sum + item.reservedCostUsd, 0).toFixed(6)), deterministicProviderCostUsd: 0, safetyMultiplier: this.config.creative.videoPriceSafetyMultiplier, pricingAsOf: VIDEO_PRICING_AS_OF, status: "pending", createdAt: now };
+    const now = iso(); const quote: CreativeQuote = { id: randomUUID(), projectId, planFingerprint: planFingerprint(normalizedPlan), version: 1, items, estimatedProviderCostUsd: Number(items.reduce((sum, item) => sum + item.estimatedProviderCostUsd, 0).toFixed(6)), reservedCostUsd: Number(items.reduce((sum, item) => sum + item.reservedCostUsd, 0).toFixed(6)), deterministicProviderCostUsd: 0, safetyMultiplier: this.config.creative.videoPriceSafetyMultiplier, pricingAsOf: VIDEO_PRICING_AS_OF, status: "pending", createdAt: now };
     await this.repository.updateProject(projectId, (current) => ({ ...current, quotes: [...current.quotes, quote], events: [...current.events, event(projectId, "creative.quote.created", { quoteId: quote.id })], updatedAt: now })); return quote;
   }
   async approveQuote(projectId: string, quoteId: string) {
@@ -162,7 +214,7 @@ export class CreativeService {
     this.submittingProjects.add(projectId);
     try {
     const project = await this.get(projectId); if (typeof quoteId !== "string") throw new DomainError("An explicitly approved quote ID is required.", "QUOTE_APPROVAL_REQUIRED", 422); const quote = project.quotes.find((item) => item.id === quoteId);
-    if (!quote || quote.status !== "approved") throw new DomainError("Generation requires explicit approval of the current quote.", "QUOTE_APPROVAL_REQUIRED", 422); if (!project.plan || quote.planFingerprint !== planFingerprint(project.plan)) throw new DomainError("The approved quote no longer matches the plan.", "QUOTE_STALE", 409);
+    if (!quote || quote.status !== "approved") throw new DomainError("Generation requires explicit approval of the current quote.", "QUOTE_APPROVAL_REQUIRED", 422); if (!project.plan || quote.planFingerprint !== planFingerprint(project.plan)) throw new DomainError("The approved quote no longer matches the plan.", "QUOTE_STALE", 409); assertGenerationShotUnambiguous(project);
     if (project.generations.some((generation) => generation.quoteId === quoteId && ["pending", "in_progress", "completed"].includes(generation.status))) throw new DomainError("This approved request already has a current generation. Refresh its status instead of submitting again.", "GENERATION_ALREADY_EXISTS", 409);
     if (project.generations.some((generation) => ["pending", "in_progress"].includes(generation.status))) throw new DomainError("A video generation is already active for this project.", "GENERATION_ALREADY_ACTIVE", 409);
     if (project.brief.creationMode === "image_to_video") throw new DomainError("Image conditioning is prepared, but paid submission is blocked until Orbio's reference-image request field is verified.", "IMAGE_CONDITIONING_NOT_WIRED", 422);
@@ -171,7 +223,7 @@ export class CreativeService {
       console.log(`videoGenerationEnabled=${this.config.creative.videoGenerationEnabled}`);
     }
     if (!this.config.creative.videoGenerationEnabled) throw new DomainError("Live video generation is disabled in this environment. Planning, quoting, and approval remain available.", "VIDEO_GENERATION_DISABLED", 503);
-    const chargeable = quote.items.filter((item) => item.model && item.reservedCostUsd > 0); const prior = new Map(project.generations.map((generation) => [generation.shotId, generation])); const records: VideoGeneration[] = chargeable.map((item) => ({ id: randomUUID(), projectId, shotId: item.shotId, model: item.model!, provider: "Orbio", quoteId, request: { durationSeconds: item.seconds, aspectRatio: project.plan!.aspectRatio, resolution: "720p", audio: false }, status: "pending", attempt: (prior.get(item.shotId)?.attempt ?? 0) + 1, quotedCostUsd: item.estimatedProviderCostUsd, reservedCostUsd: item.reservedCostUsd, costStatus: "reserved" }));
+    const chargeable = quote.items.filter((item) => item.model && item.reservedCostUsd > 0); const prior = new Map(project.generations.map((generation) => [generation.shotId, generation])); const records: VideoGeneration[] = chargeable.map((item) => ({ id: randomUUID(), projectId, shotId: item.shotId, model: item.model!, provider: "Orbio", quoteId, request: { durationSeconds: item.seconds, aspectRatio: project.plan!.aspectRatio, resolution: "720p", audio: false, ...(item.prompt ? { prompt: item.prompt } : {}) }, status: "pending", attempt: (prior.get(item.shotId)?.attempt ?? 0) + 1, quotedCostUsd: item.estimatedProviderCostUsd, reservedCostUsd: item.reservedCostUsd, costStatus: "reserved" }));
     await this.repository.updateProject(projectId, (current) => ({ ...current, generations: [...current.generations, ...records], events: [...current.events, event(projectId, "creative.generation.requested", { count: records.length, quoteId })], updatedAt: iso() }));
     for (const generation of records) await this.submit(project.plan, generation);
     return { accepted: true, generationIds: records.map((record) => record.id) };
@@ -226,8 +278,8 @@ export class CreativeService {
     } finally { this.renderingProjects.delete(projectId); }
   }
   private async submit(plan: CreativePlan, generation: VideoGeneration) {
-    const shot = plan.shots.find((item) => item.id === generation.shotId)!; const request = generation.request as unknown as SubmitVideoRequest;
-    try { const submitted = await this.video.submitVideo({ model: generation.model, prompt: shot.generativePrompt ?? shot.visualConcept, durationSeconds: Number(request.durationSeconds), aspectRatio: String(request.aspectRatio), resolution: String(request.resolution), audio: Boolean(request.audio) }); const submittedAt = iso(); await this.repository.updateProject(generation.projectId, (project) => ({ ...project, generations: project.generations.map((item) => item.id === generation.id ? { ...item, upstreamJobId: submitted.jobId, status: submitted.status, submittedAt } : item), events: [...project.events, event(project.id, "creative.generation.submitted", { generationId: generation.id, upstreamJobId: submitted.jobId })], updatedAt: submittedAt })); }
+    const shot = plan.shots.find((item) => item.id === generation.shotId)!; const request = generation.request as unknown as SubmitVideoRequest & { prompt?: string };
+    try { const submitted = await this.video.submitVideo({ model: generation.model, prompt: request.prompt ?? shot.generativePrompt ?? shot.visualConcept, durationSeconds: Number(request.durationSeconds), aspectRatio: String(request.aspectRatio), resolution: String(request.resolution), audio: Boolean(request.audio) }); const submittedAt = iso(); await this.repository.updateProject(generation.projectId, (project) => ({ ...project, generations: project.generations.map((item) => item.id === generation.id ? { ...item, upstreamJobId: submitted.jobId, status: submitted.status, submittedAt } : item), events: [...project.events, event(project.id, "creative.generation.submitted", { generationId: generation.id, upstreamJobId: submitted.jobId })], updatedAt: submittedAt })); }
     catch (error) {
       const failure = error as { code?: string; message?: string };
       console.error("[creative.video.submit.failed]", failure.code ?? "SUBMISSION_FAILED", failure.message ?? "Video submission failed.");

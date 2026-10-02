@@ -114,6 +114,8 @@ export interface CreativePlan {
 export interface CreativeQuoteItem {
   shotId: string;
   mode: CreativeVisualMode;
+  /** Exact text-to-video prompt priced in this line item. */
+  prompt?: string;
   model?: string;
   seconds: number;
   estimatedProviderCostUsd: number;

@@ -1,11 +1,16 @@
-import type { CreativeCreationMode, CreativeProject, CreativeShot, VideoGeneration } from "@auvra/shared";
+import type { CreativeCreationMode, CreativeProject, CreativeQuote, CreativeShot, VideoGeneration } from "@auvra/shared";
 
 export const DEFAULT_CREATION_MODE: CreativeCreationMode = "cinematic_scene";
 export const ACTIVE_GENERATION_STATUSES = new Set(["pending", "in_progress"]);
 
 export const latestGeneration = (project: Pick<CreativeProject, "generations">): VideoGeneration | undefined => project.generations.at(-1);
 export const generationHistory = (project: Pick<CreativeProject, "generations">): VideoGeneration[] => project.generations.slice(0, -1).reverse();
-export const hasActiveGeneration = (project: Pick<CreativeProject, "generations">): boolean => project.generations.some((generation) => ACTIVE_GENERATION_STATUSES.has(generation.status));
+// V1 is one-shot. Older projects may retain an unrelated in-flight legacy
+// record; it must not keep the current (latest) result stuck on “Generating”.
+export const hasActiveGeneration = (project: Pick<CreativeProject, "generations">): boolean => {
+  const latest = latestGeneration(project);
+  return Boolean(latest && ACTIVE_GENERATION_STATUSES.has(latest.status));
+};
 export const generationPollDelay = (project: Pick<CreativeProject, "generations">): number | undefined => hasActiveGeneration(project) ? 3000 : undefined;
 export const generationPreviewUrl = (project: Pick<CreativeProject, "id">, generation?: VideoGeneration): string | undefined => generation?.status === "completed" && generation.outputAssetId ? `/api/creative/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(generation.outputAssetId)}/content` : undefined;
 export const finalPreviewUrl = (project: Pick<CreativeProject, "id" | "outputAssetId">): string | undefined => project.outputAssetId ? `/api/creative/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(project.outputAssetId)}/content` : undefined;
@@ -33,4 +38,9 @@ export function visualConceptPatch(shot: CreativeShot, visualConcept: string): P
 
 export function isCreativeProject(value: unknown): value is CreativeProject {
   return Boolean(value && typeof value === "object" && "brief" in value && "assets" in value && "quotes" in value);
+}
+
+export function quotedPromptMatchesEditor(quote: CreativeQuote, editorPrompt: string | undefined): boolean {
+  const quotedPrompt = quote.items.find((item) => item.prompt)?.prompt;
+  return Boolean(quotedPrompt !== undefined && editorPrompt !== undefined && quotedPrompt === editorPrompt);
 }

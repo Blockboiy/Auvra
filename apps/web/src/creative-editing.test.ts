@@ -1,7 +1,7 @@
 import type { CreativeProject, CreativeShot, VideoGeneration } from "@auvra/shared";
 import { describe, expect, it, vi } from "vitest";
 import { api } from "./api";
-import { DEFAULT_CREATION_MODE, FINAL_RENDER_LABEL, finalPreviewUrl, generationHistory, generationPollDelay, generationPreviewUrl, hasActiveGeneration, latestGeneration, generationPermissionPatch, isCreativeProject, visualConceptPatch, visualModePatch } from "./creative-editing";
+import { DEFAULT_CREATION_MODE, FINAL_RENDER_LABEL, finalPreviewUrl, generationHistory, generationPollDelay, generationPreviewUrl, hasActiveGeneration, latestGeneration, generationPermissionPatch, isCreativeProject, quotedPromptMatchesEditor, visualConceptPatch, visualModePatch } from "./creative-editing";
 
 const deterministicShot: CreativeShot = { id: "shot-1", order: 1, purpose: "Explain coordination", durationSeconds: 6, exactCopy: ["One workspace"], visualConcept: "Deterministic node diagram", visualMode: "motion_graphic", assetRefs: [], motionDirection: "Build", transitionIn: "Fade", transitionOut: "Mask", brandConstraints: ["No logo mutation"], allowGenerativeVideo: false };
 
@@ -32,9 +32,15 @@ describe("Creative Studio shot editing", () => {
 const generation = (id: string, status: VideoGeneration["status"], outputAssetId?: string): VideoGeneration => ({ id, projectId: "project-1", shotId: "shot-1", model: "runway/gen-4.5", provider: "Orbio", request: {}, status, attempt: Number(id.slice(-1)) || 1, quotedCostUsd: 0.48, reservedCostUsd: 0.552, costStatus: status === "completed" ? "verified" : "reserved", ...(outputAssetId ? { outputAssetId } : {}) });
 
 describe("Creative Studio V1 generation state", () => {
+  it("blocks approval when the displayed quote prompt differs from the editor", () => {
+    const quote = { items: [{ shotId: "shot-1", mode: "generative_video", prompt: "stale", seconds: 4, estimatedProviderCostUsd: 0.12, reservedCostUsd: 0.138 }] } as CreativeProject["quotes"][number];
+    expect(quotedPromptMatchesEditor(quote, "dancing")).toBe(false);
+    expect(quotedPromptMatchesEditor(quote, "stale")).toBe(true);
+  });
   it("defaults to Cinematic Scene while Image to Video awaits provider support", () => { expect(DEFAULT_CREATION_MODE).toBe("cinematic_scene"); });
   it("shows only the latest attempt on the primary surface while preserving history", () => { const project = { generations: [generation("g1", "failed"), generation("g2", "failed"), generation("g3", "in_progress")] }; expect(latestGeneration(project)?.id).toBe("g3"); expect(generationHistory(project).map((item) => item.id)).toEqual(["g2", "g1"]); });
   it("prevents duplicate submission state and polls only while an attempt is active", () => { const active = { generations: [generation("g1", "in_progress")] }; const terminal = { generations: [generation("g1", "completed", "asset-1")] }; expect(hasActiveGeneration(active)).toBe(true); expect(generationPollDelay(active)).toBe(3000); expect(hasActiveGeneration(terminal)).toBe(false); expect(generationPollDelay(terminal)).toBeUndefined(); });
+  it("does not keep polling a completed latest V1 result because of an older legacy attempt", () => { const project = { generations: [generation("g1", "in_progress"), generation("g2", "completed", "asset-2")] }; expect(latestGeneration(project)?.id).toBe("g2"); expect(hasActiveGeneration(project)).toBe(false); expect(generationPollDelay(project)).toBeUndefined(); });
   it("exposes a project-scoped preview URL only for completed output", () => { const project = { id: "project/one" }; expect(generationPreviewUrl(project, generation("g1", "completed", "asset/two"))).toBe("/api/creative/projects/project%2Fone/assets/asset%2Ftwo/content"); expect(generationPreviewUrl(project, generation("g2", "in_progress"))).toBeUndefined(); });
   it("keeps final output separate and labels deterministic rendering clearly", () => { expect(finalPreviewUrl({ id: "project/one", outputAssetId: "final/two" })).toBe("/api/creative/projects/project%2Fone/assets/final%2Ftwo/content"); expect(finalPreviewUrl({ id: "project/one" })).toBeUndefined(); expect(FINAL_RENDER_LABEL).toBe("Render final video"); });
 });

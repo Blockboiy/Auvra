@@ -180,6 +180,73 @@ describe("asset upload limits and path safety", () => {
 describe("cinematic creation modes", () => {
   it("requires an uploaded image before preparing Image to Video", async () => { const state = await setup(); const created = (await request(state.app).post("/api/creative/projects").send({ name: "Image motion", brief: { creationMode: "image_to_video", objective: "Animate frame", audience: "Customers", keyMessage: "Camera pushes in while fabric moves", durationSeconds: 4, aspectRatio: "16:9", toneNotes: "Cinematic", qualityTarget: "standard" } })).body as CreativeProject; const response = await request(state.app).post(`/api/creative/projects/${created.id}/direct`).send({}); expect(response.status).toBe(422); expect(response.body.error.code).toBe("REFERENCE_IMAGE_REQUIRED"); });
   it("prepares a text-to-video mode without an image", async () => { const state = await setup(); const created = (await request(state.app).post("/api/creative/projects").send({ name: "Scene", brief: { creationMode: "cinematic_scene", objective: "Create scene", audience: "Customers", keyMessage: "A runner crosses a rain-lit street as the camera tracks beside her", durationSeconds: 6, aspectRatio: "9:16", toneNotes: "Cinematic", qualityTarget: "standard" } })).body as CreativeProject; const response = await request(state.app).post(`/api/creative/projects/${created.id}/direct`).send({}); expect(response.status).toBe(200); expect(response.body.plan.shots).toHaveLength(1); expect(response.body.plan.shots[0]).toEqual(expect.objectContaining({ durationSeconds: 6, visualMode: "generative_video", allowGenerativeVideo: true })); });
+  it("normalizes an edited legacy V1 plan and submits only the visible prompt", async () => {
+    const state = await setup(true);
+    const created = (await request(state.app).post("/api/creative/projects").send({ name: "Dance", brief: { creationMode: "cinematic_scene", objective: "Create scene", audience: "Customers", keyMessage: "A woman dances", durationSeconds: 6, aspectRatio: "9:16", toneNotes: "Cinematic", qualityTarget: "standard" } })).body as CreativeProject;
+    const dancing = "A confident young woman dancing slowly and fluidly in warm evening light, cinematic camera movement.";
+    const historical = { id: "completed-history", projectId: created.id, shotId: "old-shot", model: "runway/gen-4.5", provider: "Orbio" as const, request: {}, status: "completed" as const, attempt: 11, quotedCostUsd: 0.48, reservedCostUsd: 0.552, actualProviderCostUsd: 0.44, costStatus: "verified" as const, outputAssetId: "old-output" };
+    await state.repository.updateProject(created.id, (current) => ({ ...current, generations: [historical], assets: [{ id: "old-output", projectId: created.id, originalName: "old.mp4", mimeType: "video/mp4", size: 4, role: "generated_video", createdAt: new Date().toISOString(), analysisStatus: "completed" }], updatedAt: new Date().toISOString() }));
+    const legacy = validPlan({ durationSeconds: 15, shots: [
+      { ...validPlan().shots[0]!, id: "edited", visualConcept: dancing, generativePrompt: dancing, visualMode: "motion_graphic", allowGenerativeVideo: false },
+      { ...validPlan().shots[0]!, id: "stale", order: 2, visualConcept: "Abstract AI agents", generativePrompt: "Abstract premium visualization of multiple AI agents coordinating", durationSeconds: 11 }
+    ] });
+    const saved = await request(state.app).post(`/api/creative/projects/${created.id}/direct`).send({ plan: legacy });
+    expect(saved.body.plan.shots).toHaveLength(1);
+    expect(saved.body.generations).toEqual(expect.arrayContaining([expect.objectContaining({ id: "completed-history", outputAssetId: "old-output" })]));
+    expect(saved.body.plan.shots[0]).toEqual(expect.objectContaining({ visualMode: "generative_video", visualConcept: dancing, generativePrompt: dancing }));
+    const quote = (await request(state.app).post(`/api/creative/projects/${created.id}/quote`).send({})).body;
+    expect(quote.items).toHaveLength(1);
+    expect(quote.items[0]).toEqual(expect.objectContaining({ prompt: dancing }));
+    await request(state.app).post(`/api/creative/projects/${created.id}/quotes/${quote.id}/approve`).send({});
+    expect((await request(state.app).post(`/api/creative/projects/${created.id}/generate`).send({ quoteId: quote.id })).status).toBe(202);
+    expect(state.video.submissions).toHaveLength(1);
+    expect(state.video.submissions[0]?.prompt).toBe(dancing);
+    expect(state.video.submissions[0]?.prompt).not.toContain("AI agents");
+    state.creative.stop();
+  });
+  it("normalizes a persisted legacy plan before direct Estimate Cost and never quotes the stale shot", async () => {
+    const state = await setup(false);
+    const created = (await request(state.app).post("/api/creative/projects").send({ name: "Legacy dance", brief: { creationMode: "cinematic_scene", objective: "Create scene", audience: "Customers", keyMessage: "A woman dances", durationSeconds: 15, aspectRatio: "16:9", toneNotes: "Cinematic", qualityTarget: "standard" } })).body as CreativeProject;
+    const dancing = "A confident young woman dancing slowly and fluidly in warm evening light, cinematic camera movement.";
+    const legacy = validPlan({ shots: [
+      { ...validPlan().shots[0]!, id: "legacy-1", visualMode: "motion_graphic", allowGenerativeVideo: false, visualConcept: dancing, generativePrompt: undefined, generativeReason: undefined, durationSeconds: 4 },
+      { ...validPlan().shots[0]!, id: "legacy-2", order: 2, visualConcept: "Abstract AI agents", generativePrompt: "Abstract premium visualization of multiple AI agents coordinating", durationSeconds: 6 },
+      { ...validPlan().shots[1]!, id: "legacy-3", order: 3, durationSeconds: 5 }
+    ].map((shot) => { const copy = { ...shot }; if (copy.generativePrompt === undefined) delete copy.generativePrompt; if (copy.generativeReason === undefined) delete copy.generativeReason; return copy; }) });
+    await state.repository.updateProject(created.id, (current) => ({ ...current, plan: legacy, updatedAt: new Date().toISOString() }));
+    const quote = await request(state.app).post(`/api/creative/projects/${created.id}/quote`).send({});
+    expect(quote.status).toBe(201);
+    expect(quote.body.items).toHaveLength(1);
+    expect(quote.body.items[0].prompt).toBe(dancing);
+    expect(quote.body.items[0].prompt).not.toContain("AI agents");
+    const persisted = await state.creative.get(created.id);
+    expect(persisted.plan?.shots).toHaveLength(1);
+    expect(persisted.plan?.shots[0]).toEqual(expect.objectContaining({ visualMode: "generative_video", allowGenerativeVideo: true, generativePrompt: dancing }));
+    expect(state.video.submissions).toHaveLength(0);
+    state.creative.stop();
+  });
+  it("invalidates V1 approval when its prompt changes", async () => {
+    const state = await setup();
+    const created = (await request(state.app).post("/api/creative/projects").send({ name: "Prompt", brief: { creationMode: "social_clip", objective: "Create clip", audience: "Customers", keyMessage: "First", durationSeconds: 4, aspectRatio: "16:9", toneNotes: "Cinematic", qualityTarget: "standard" } })).body as CreativeProject;
+    const first = validPlan({ durationSeconds: 4, shots: [{ ...validPlan().shots[0]!, id: "one", durationSeconds: 4, visualConcept: "First", generativePrompt: "First" }] });
+    const second = { ...first, shots: [{ ...first.shots[0]!, visualConcept: "Second", generativePrompt: "Second" }] };
+    await request(state.app).post(`/api/creative/projects/${created.id}/direct`).send({ plan: first });
+    const quote = (await request(state.app).post(`/api/creative/projects/${created.id}/quote`).send({})).body;
+    await request(state.app).post(`/api/creative/projects/${created.id}/quotes/${quote.id}/approve`).send({});
+    await request(state.app).post(`/api/creative/projects/${created.id}/direct`).send({ plan: second });
+    expect((await state.creative.get(created.id)).quotes.find((item) => item.id === quote.id)?.status).toBe("invalidated");
+    state.creative.stop();
+  });
+  it("fails safely when a legacy project has multiple generative shots", async () => {
+    const state = await setup(true);
+    const plan = validPlan({ shots: [validPlan().shots[0]!, { ...validPlan().shots[0]!, id: "second", order: 2, durationSeconds: 11, generativePrompt: "Another stale prompt" }] });
+    await request(state.app).post(`/api/creative/projects/${state.project.id}/direct`).send({ plan });
+    const quote = await request(state.app).post(`/api/creative/projects/${state.project.id}/quote`).send({});
+    expect(quote.status).toBe(422);
+    expect(quote.body.error.code).toBe("ACTIVE_GENERATION_SHOT_AMBIGUOUS");
+    expect(state.video.submissions).toHaveLength(0);
+    state.creative.stop();
+  });
   it("keeps image-conditioned paid submission blocked when no documented Orbio request field exists", async () => { const state = await setup(true); const created = (await request(state.app).post("/api/creative/projects").send({ name: "Image motion", brief: { creationMode: "image_to_video", objective: "Animate frame", audience: "Customers", keyMessage: "Camera pushes in while fabric moves", durationSeconds: 4, aspectRatio: "16:9", toneNotes: "Cinematic", qualityTarget: "standard" } })).body as CreativeProject; await request(state.app).post(`/api/creative/projects/${created.id}/assets`).attach("assets", Buffer.from("png"), { filename: "frame.png", contentType: "image/png" }); await request(state.app).post(`/api/creative/projects/${created.id}/direct`).send({}); const quote = (await request(state.app).post(`/api/creative/projects/${created.id}/quote`).send({})).body; await request(state.app).post(`/api/creative/projects/${created.id}/quotes/${quote.id}/approve`).send({}); const response = await request(state.app).post(`/api/creative/projects/${created.id}/generate`).send({ quoteId: quote.id }); expect(response.status).toBe(422); expect(response.body.error.code).toBe("IMAGE_CONDITIONING_NOT_WIRED"); expect(state.video.submissions).toHaveLength(0); state.creative.stop(); });
 });
 
