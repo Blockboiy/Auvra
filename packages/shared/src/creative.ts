@@ -33,11 +33,12 @@ export interface CreativeBrief {
   audience: string;
   keyMessage: string;
   cta?: string;
-  durationSeconds: 4 | 6 | 8 | 15 | 30;
+  durationSeconds: 4 | 6 | 8 | 15 | 30 | 60;
   aspectRatio: CreativeAspectRatio;
   toneNotes: string;
   referenceAssetId?: string;
   qualityTarget: "standard" | "premium";
+  nativeAudioEnabled?: boolean;
 }
 
 export interface CreativeFinishing {
@@ -84,6 +85,8 @@ export interface CreativeShot {
   brandConstraints: string[];
   generativeReason?: string;
   allowGenerativeVideo: boolean;
+  /** Explicit opt-in. Routing must select a model with verified native-audio support. */
+  nativeAudioEnabled?: boolean;
 }
 
 export interface CreativeAudioPlan {
@@ -101,7 +104,7 @@ export interface CreativePlan {
   openingHook: string;
   narrativeArc: string;
   brandSystem: BrandSystem;
-  durationSeconds: 4 | 6 | 8 | 15 | 30;
+  durationSeconds: 4 | 6 | 8 | 15 | 30 | 60;
   aspectRatio: CreativeAspectRatio;
   shots: CreativeShot[];
   audioPlan: CreativeAudioPlan;
@@ -117,6 +120,7 @@ export interface CreativeQuoteItem {
   /** Exact text-to-video prompt priced in this line item. */
   prompt?: string;
   model?: string;
+  nativeAudioEnabled?: boolean;
   seconds: number;
   estimatedProviderCostUsd: number;
   reservedCostUsd: number;
@@ -144,6 +148,8 @@ export interface VideoGeneration {
   id: string;
   projectId: string;
   shotId: string;
+  /** Persisted for new attempts; optional only for backwards-compatible records. */
+  prompt?: string;
   model: string;
   provider: "Orbio";
   quoteId?: string;

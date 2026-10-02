@@ -11,6 +11,8 @@ export type CreativeCompositionProps = {
   logoSource?: string;
 };
 
+export const timelineDurationInFrames = (plan: Pick<CreativePlan, "shots">, fps = 30): number => plan.shots.reduce((frames, shot) => frames + Math.round(shot.durationSeconds * fps), 0);
+
 export const captionsFromScript = (script: string, durationSeconds: number): CaptionCue[] => {
   const words = script.trim().split(/\s+/).filter(Boolean); if (!words.length) return [];
   const chunks = Array.from({ length: Math.ceil(words.length / 6) }, (_, index) => words.slice(index * 6, index * 6 + 6).join(" "));
@@ -36,7 +38,7 @@ const PrecisionOverlay = ({ plan, captions, logoSource }: { plan: CreativePlan; 
 export const CreativeComposition = ({ plan, generatedClipSources = {}, voiceoverSource, captions = [], logoSource }: CreativeCompositionProps) => {
   const resolvedCaptions = captions.length ? captions : plan.finishing?.captionsEnabled && plan.finishing.voiceoverScript ? captionsFromScript(plan.finishing.voiceoverScript, plan.durationSeconds) : [];
   return <AbsoluteFill style={{ backgroundColor: "#110c21" }}>
-    <Series>{plan.shots.map((shot) => { const source = generatedClipSources[shot.id]; return <Series.Sequence key={shot.id} name={`Generated shot ${shot.order}`} durationInFrames={Math.round(shot.durationSeconds * 30)} premountFor={30}>{source ? <Video src={mediaSource(source)} muted={Boolean(voiceoverSource)} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", color: "#a88cff", fontFamily: "Inter, Arial, sans-serif", fontSize: 34 }}>Generated footage</AbsoluteFill>}</Series.Sequence>; })}</Series>
+    <Series>{[...plan.shots].sort((a, b) => a.order - b.order).map((shot) => { const source = generatedClipSources[shot.id]; return <Series.Sequence key={shot.id} name={`Generated shot ${shot.order}`} durationInFrames={Math.round(shot.durationSeconds * 30)} premountFor={30}>{source ? <Video src={mediaSource(source)} muted={Boolean(voiceoverSource)} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", color: "#a88cff", fontFamily: "Inter, Arial, sans-serif", fontSize: 34 }}>Generated footage</AbsoluteFill>}</Series.Sequence>; })}</Series>
     {voiceoverSource && plan.finishing?.voiceoverEnabled ? <Audio src={mediaSource(voiceoverSource)} /> : null}
     <PrecisionOverlay plan={plan} captions={resolvedCaptions} logoSource={logoSource} />
   </AbsoluteFill>;

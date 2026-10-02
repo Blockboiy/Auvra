@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CreativePlan, CreativeProject, VideoGeneration, VideoGenerationStatus } from "@auvra/shared";
+import type { CreativePlan, CreativeProject, CreativeQuote, VideoGeneration, VideoGenerationStatus } from "@auvra/shared";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
@@ -19,9 +19,9 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((directory) 
 
 const inference: InferenceProvider = { complete: async () => { throw new Error("Inference intentionally unavailable in unit tests"); } };
 class MockVideoProvider implements VideoProvider {
-  submissions: SubmitVideoRequest[] = []; polls: string[] = []; nextStatus: VideoGenerationStatus = "in_progress"; usageCostUsd: number | undefined;
+  submissions: SubmitVideoRequest[] = []; polls: string[] = []; nextStatus: VideoGenerationStatus = "in_progress"; statuses = new Map<string, VideoGenerationStatus>(); usageCostUsd: number | undefined;
   async submitVideo(value: SubmitVideoRequest) { this.submissions.push(value); return { jobId: `job_${this.submissions.length}`, status: "pending" as const }; }
-  async getVideoJob(jobId: string): Promise<VideoJobResult> { this.polls.push(jobId); return { id: jobId, status: this.nextStatus, outputs: 1, ...(this.usageCostUsd === undefined ? {} : { usageCostUsd: this.usageCostUsd }) }; }
+  async getVideoJob(jobId: string): Promise<VideoJobResult> { this.polls.push(jobId); return { id: jobId, status: this.statuses.get(jobId) ?? this.nextStatus, outputs: 1, ...(this.usageCostUsd === undefined ? {} : { usageCostUsd: this.usageCostUsd }) }; }
   async downloadVideo() { return new Response("video", { status: 200 }); }
 }
 class MockFinishingRenderer implements FinishingRenderer {
@@ -61,7 +61,7 @@ describe("plan fingerprint, approval, and generation gates", () => {
     state.creative.stop();
   });
   it("rejects malformed director JSON", () => { expect(parseCreativePlan({ conceptTitle: "missing everything" })).toBeUndefined(); });
-  it("invalidates a quote when the plan changes", async () => { const { app, project } = await setup(); const plan = validPlan(); await request(app).post(`/api/creative/projects/${project.id}/direct`).send({ plan }); const quote = (await request(app).post(`/api/creative/projects/${project.id}/quote`).send({})).body; await request(app).post(`/api/creative/projects/${project.id}/quotes/${quote.id}/approve`).send({}); await request(app).post(`/api/creative/projects/${project.id}/direct`).send({ plan: { ...plan, conceptTitle: "Changed" } }); const generate = await request(app).post(`/api/creative/projects/${project.id}/generate`).send({ quoteId: quote.id }); expect(generate.status).toBe(422); expect(generate.body.error.code).toBe("QUOTE_APPROVAL_REQUIRED"); });
+  it("invalidates a quote when a paid generative prompt changes", async () => { const { app, project } = await setup(); const plan = validPlan(); await request(app).post(`/api/creative/projects/${project.id}/direct`).send({ plan }); const quote = (await request(app).post(`/api/creative/projects/${project.id}/quote`).send({})).body; await request(app).post(`/api/creative/projects/${project.id}/quotes/${quote.id}/approve`).send({}); await request(app).post(`/api/creative/projects/${project.id}/direct`).send({ plan: { ...plan, shots: plan.shots.map((shot, index) => index === 0 ? { ...shot, generativePrompt: "A materially different paid scene" } : shot) } }); const generate = await request(app).post(`/api/creative/projects/${project.id}/generate`).send({ quoteId: quote.id }); expect(generate.status).toBe(422); expect(generate.body.error.code).toBe("QUOTE_APPROVAL_REQUIRED"); });
   it("requires explicit approval and still refuses spend while the feature flag is false", async () => { const { app, project } = await setup(false); await request(app).post(`/api/creative/projects/${project.id}/direct`).send({ plan: validPlan() }); const quote = (await request(app).post(`/api/creative/projects/${project.id}/quote`).send({})).body; expect((await request(app).post(`/api/creative/projects/${project.id}/generate`).send({ quoteId: quote.id })).body.error.code).toBe("QUOTE_APPROVAL_REQUIRED"); await request(app).post(`/api/creative/projects/${project.id}/quotes/${quote.id}/approve`).send({}); const disabled = await request(app).post(`/api/creative/projects/${project.id}/generate`).send({ quoteId: quote.id }); expect(disabled.status).toBe(503); expect(disabled.body.error.code).toBe("VIDEO_GENERATION_DISABLED"); });
   it.each([
     { enabled: true, expectedStatus: 202, expectedCode: undefined, expectedSubmissions: 1 },
@@ -104,7 +104,7 @@ describe("plan fingerprint, approval, and generation gates", () => {
       else process.env.AUVRA_VIDEO_GENERATION_ENABLED = previous;
     }
   });
-  it("uses a stable plan fingerprint", () => { const plan = validPlan(); expect(planFingerprint(plan)).toBe(planFingerprint(structuredClone(plan))); expect(planFingerprint({ ...plan, closingCTA: "Different" })).not.toBe(planFingerprint(plan)); });
+  it("fingerprints paid shot inputs but ignores deterministic finishing changes", () => { const plan = validPlan(); expect(planFingerprint(plan)).toBe(planFingerprint(structuredClone(plan))); expect(planFingerprint({ ...plan, closingCTA: "Different", finishing: { voiceoverEnabled: false, voiceoverSource: "user", captionsEnabled: true } })).toBe(planFingerprint(plan)); expect(planFingerprint({ ...plan, shots: plan.shots.map((shot, index) => index === 0 ? { ...shot, generativePrompt: "Different paid prompt" } : shot) })).not.toBe(planFingerprint(plan)); });
   it("round-trips a deterministic shot edited to generative and quotes the persisted plan without mutation", async () => {
     const { app, project } = await setup();
     const initial = validPlan({ shots: [
@@ -216,12 +216,12 @@ describe("cinematic creation modes", () => {
     await state.repository.updateProject(created.id, (current) => ({ ...current, plan: legacy, updatedAt: new Date().toISOString() }));
     const quote = await request(state.app).post(`/api/creative/projects/${created.id}/quote`).send({});
     expect(quote.status).toBe(201);
-    expect(quote.body.items).toHaveLength(1);
-    expect(quote.body.items[0].prompt).toBe(dancing);
-    expect(quote.body.items[0].prompt).not.toContain("AI agents");
+    expect(quote.body.items).toHaveLength(2);
+    expect(quote.body.items.every((item: { prompt?: string }) => item.prompt?.includes("A woman dances"))).toBe(true);
+    expect(quote.body.items.every((item: { prompt?: string }) => !item.prompt?.includes("AI agents"))).toBe(true);
     const persisted = await state.creative.get(created.id);
-    expect(persisted.plan?.shots).toHaveLength(1);
-    expect(persisted.plan?.shots[0]).toEqual(expect.objectContaining({ visualMode: "generative_video", allowGenerativeVideo: true, generativePrompt: dancing }));
+    expect(persisted.plan?.shots).toHaveLength(2);
+    expect(persisted.plan?.shots.every((shot) => shot.visualMode === "generative_video" && shot.allowGenerativeVideo)).toBe(true);
     expect(state.video.submissions).toHaveLength(0);
     state.creative.stop();
   });
@@ -265,4 +265,63 @@ describe("deterministic finishing and final export", () => {
   it("reuses uploaded narration without any TTS call and rerenders metadata without calling the video provider", async () => { const state = await completedState(); const upload = await request(state.app).post(`/api/creative/projects/${state.project.id}/assets`).field("role", "narration").attach("assets", Buffer.from("wav"), { filename: "narration.wav", contentType: "audio/wav" }); const narrationAssetId = upload.body.assets.at(-1).id; const first = { voiceoverEnabled: true, voiceoverSource: "user", voiceoverScript: "Same final script", narrationAssetId, captionsEnabled: false, logoEnabled: false, ctaEnabled: false }; await request(state.app).post(`/api/creative/projects/${state.project.id}/finishing`).send(first); await request(state.app).post(`/api/creative/projects/${state.project.id}/render`).send({}); await request(state.app).post(`/api/creative/projects/${state.project.id}/finishing`).send({ ...first, captionsEnabled: true }); await request(state.app).post(`/api/creative/projects/${state.project.id}/render`).send({}); expect(state.video.submissions).toHaveLength(1); expect(state.finishingRenderer.calls).toHaveLength(2); expect(state.finishingRenderer.calls[0]?.narrationPath).toBe(state.finishingRenderer.calls[1]?.narrationPath); state.creative.stop(); });
 
   it("prepares a duration-bound script only on explicit request and persists its exact result for editing", async () => { const complete = vi.fn(async () => ({ text: "A precisely prepared script.", toolCalls: [], usage: { input: 1, output: 2, total: 3 }, actualCostUsd: 0.001, model: "test", finishReason: "stop" })); const state = await setup(false, {}, { complete }); await request(state.app).post(`/api/creative/projects/${state.project.id}/direct`).send({ plan: validPlan() }); const response = await request(state.app).post(`/api/creative/projects/${state.project.id}/finishing/prepare-script`).send({}); expect(response.status).toBe(200); expect(response.body.plan.finishing.voiceoverScript).toBe("A precisely prepared script."); expect(complete).toHaveBeenCalledTimes(1); state.creative.stop(); });
+});
+
+describe("long-form cinematic direction", () => {
+  async function createDirected(state: Awaited<ReturnType<typeof setup>>, durationSeconds: 6 | 15 | 30 | 60, nativeAudioEnabled = false) {
+    const created = (await request(state.app).post("/api/creative/projects").send({ name: `${durationSeconds}s film`, brief: { creationMode: "cinematic_scene", objective: "Create a luxury perfume film", audience: "Luxury buyers", keyMessage: "Black glass perfume in amber light", durationSeconds, aspectRatio: "16:9", toneNotes: "Premium and restrained", qualityTarget: "standard", nativeAudioEnabled } })).body as CreativeProject;
+    const directed = await request(state.app).post(`/api/creative/projects/${created.id}/direct`).send({});
+    expect(directed.status).toBe(200); return directed.body as CreativeProject;
+  }
+
+  it("keeps the short clip as one provider-compatible shot", async () => {
+    const state = await setup(); const project = await createDirected(state, 6);
+    expect(project.plan?.shots).toHaveLength(1); expect(project.plan?.shots[0]?.durationSeconds).toBe(6); state.creative.stop();
+  });
+
+  it.each([[15, 2], [30, 5], [60, 10]] as const)("plans %ss as %s short provider-compatible shots", async (durationSeconds, count) => {
+    const state = await setup(); const project = await createDirected(state, durationSeconds);
+    expect(project.plan?.shots).toHaveLength(count);
+    expect(project.plan?.shots.reduce((sum, shot) => sum + shot.durationSeconds, 0)).toBe(durationSeconds);
+    expect(project.plan?.shots.every((shot) => shot.durationSeconds <= 8 && routeShot(shot, project.plan!.aspectRatio, project.brief.qualityTarget).kind === "generative")).toBe(true);
+    state.creative.stop();
+  });
+
+  it("quotes the sum with reserve and submits nothing before complete-plan approval", async () => {
+    const state = await setup(true); const project = await createDirected(state, 30);
+    const quote = (await request(state.app).post(`/api/creative/projects/${project.id}/quote`).send({})).body as CreativeQuote;
+    expect(quote.items.filter((item) => item.model)).toHaveLength(5);
+    expect(quote.estimatedProviderCostUsd).toBe(Number(quote.items.reduce((sum, item) => sum + item.estimatedProviderCostUsd, 0).toFixed(6)));
+    expect(quote.reservedCostUsd).toBe(Number(quote.items.reduce((sum, item) => sum + item.reservedCostUsd, 0).toFixed(6)));
+    expect(state.video.submissions).toHaveLength(0);
+    expect((await request(state.app).post(`/api/creative/projects/${project.id}/generate`).send({ quoteId: quote.id })).body.error.code).toBe("QUOTE_APPROVAL_REQUIRED");
+    expect(state.video.submissions).toHaveLength(0); state.creative.stop();
+  });
+
+  it("polls every shot, retries only failure, and assembles in plan order", async () => {
+    const state = await setup(true, { pollConcurrency: 2 }); const project = await createDirected(state, 30);
+    const quote = (await request(state.app).post(`/api/creative/projects/${project.id}/quote`).send({})).body as CreativeQuote;
+    await request(state.app).post(`/api/creative/projects/${project.id}/quotes/${quote.id}/approve`).send({}); await request(state.app).post(`/api/creative/projects/${project.id}/generate`).send({ quoteId: quote.id });
+    expect(state.video.submissions).toHaveLength(5); expect(state.video.submissions.every((submission) => submission.durationSeconds === 6)).toBe(true);
+    for (let index = 1; index <= 5; index++) state.video.statuses.set(`job_${index}`, index === 3 ? "failed" : "completed");
+    await state.creative.pollOnce(); expect(state.video.polls).toEqual(["job_1", "job_2", "job_3", "job_4", "job_5"]);
+    const partial = await state.creative.get(project.id); const current = new Map<string, VideoGeneration>(); for (const generation of partial.generations) current.set(generation.shotId, generation);
+    expect([...current.values()].filter((generation) => generation.status === "completed")).toHaveLength(4);
+    const failed = [...current.values()].find((generation) => generation.status === "failed")!;
+    const retryQuote = (await request(state.app).post(`/api/creative/projects/${project.id}/quote`).send({ shotId: failed.shotId })).body as CreativeQuote;
+    expect(retryQuote.items.filter((item) => item.model).map((item) => item.shotId)).toEqual([failed.shotId]);
+    await request(state.app).post(`/api/creative/projects/${project.id}/quotes/${retryQuote.id}/approve`).send({}); await request(state.app).post(`/api/creative/projects/${project.id}/generate`).send({ quoteId: retryQuote.id });
+    expect(state.video.submissions).toHaveLength(6); state.video.statuses.set("job_6", "completed"); await state.creative.pollOnce();
+    const pollsAtTerminal = state.video.polls.length; await state.creative.pollOnce(); expect(state.video.polls).toHaveLength(pollsAtTerminal);
+    await request(state.app).post(`/api/creative/projects/${project.id}/render`).send({});
+    expect(state.finishingRenderer.calls[0]?.generatedClips.map((clip) => clip.shotId)).toEqual([...(project.plan?.shots ?? [])].sort((a, b) => a.order - b.order).map((shot) => shot.id)); state.creative.stop();
+  });
+
+  it("sends native audio only after explicit opt-in and verified routing", async () => {
+    const state = await setup(true); const project = await createDirected(state, 15, true);
+    const quote = (await request(state.app).post(`/api/creative/projects/${project.id}/quote`).send({})).body as CreativeQuote;
+    expect(quote.items.every((item) => !item.model || item.nativeAudioEnabled === true)).toBe(true);
+    await request(state.app).post(`/api/creative/projects/${project.id}/quotes/${quote.id}/approve`).send({}); await request(state.app).post(`/api/creative/projects/${project.id}/generate`).send({ quoteId: quote.id });
+    expect(state.video.submissions.every((submission) => submission.audio === true)).toBe(true); state.creative.stop();
+  });
 });

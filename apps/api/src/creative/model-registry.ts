@@ -70,8 +70,9 @@ export function routeShot(shot: CreativeShot, aspectRatio: CreativeAspectRatio, 
   const candidates = quality === "premium"
     ? ["runway/gen-4.5", "kwaivgi/kling-v3.0-pro", "google/veo-3.1-lite", "google/veo-3.1-fast"]
     : ["google/veo-3.1-lite", "google/veo-3.1-fast", "runway/gen-4.5", "kwaivgi/kling-v3.0-pro"];
-  const exact = candidates.find((model) => quoteModel(model, { durationSeconds: shot.durationSeconds, aspectRatio, resolution: "720p", audio: false }) !== null);
-  return exact ? { kind: "generative" as const, model: exact, resolution: "720p" as const, audio: false } : { kind: "unquoteable" as const, reason: "No enabled model has a trusted price and compatible duration/aspect ratio." };
+  const audio = shot.nativeAudioEnabled === true;
+  const exact = candidates.find((model) => quoteModel(model, { durationSeconds: shot.durationSeconds, aspectRatio, resolution: "720p", audio }) !== null);
+  return exact ? { kind: "generative" as const, model: exact, resolution: "720p" as const, audio } : { kind: "unquoteable" as const, reason: `No enabled model has a trusted price and compatible duration/aspect ratio${audio ? "/native-audio configuration" : ""}.` };
 }
 
 // Generic /models prompt/completion zeros are deliberately absent from this module.

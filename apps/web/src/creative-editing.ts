@@ -7,10 +7,12 @@ export const latestGeneration = (project: Pick<CreativeProject, "generations">):
 export const generationHistory = (project: Pick<CreativeProject, "generations">): VideoGeneration[] => project.generations.slice(0, -1).reverse();
 // V1 is one-shot. Older projects may retain an unrelated in-flight legacy
 // record; it must not keep the current (latest) result stuck on “Generating”.
-export const hasActiveGeneration = (project: Pick<CreativeProject, "generations">): boolean => {
-  const latest = latestGeneration(project);
-  return Boolean(latest && ACTIVE_GENERATION_STATUSES.has(latest.status));
+export const latestShotGenerations = (project: Pick<CreativeProject, "generations">): VideoGeneration[] => {
+  const latest = new Map<string, VideoGeneration>();
+  for (const generation of project.generations) latest.set(generation.shotId, generation);
+  return [...latest.values()];
 };
+export const hasActiveGeneration = (project: Pick<CreativeProject, "generations">): boolean => latestShotGenerations(project).some((generation) => ACTIVE_GENERATION_STATUSES.has(generation.status));
 export const generationPollDelay = (project: Pick<CreativeProject, "generations">): number | undefined => hasActiveGeneration(project) ? 3000 : undefined;
 export const generationPreviewUrl = (project: Pick<CreativeProject, "id">, generation?: VideoGeneration): string | undefined => generation?.status === "completed" && generation.outputAssetId ? `/api/creative/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(generation.outputAssetId)}/content` : undefined;
 export const finalPreviewUrl = (project: Pick<CreativeProject, "id" | "outputAssetId">): string | undefined => project.outputAssetId ? `/api/creative/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(project.outputAssetId)}/content` : undefined;
@@ -43,4 +45,11 @@ export function isCreativeProject(value: unknown): value is CreativeProject {
 export function quotedPromptMatchesEditor(quote: CreativeQuote, editorPrompt: string | undefined): boolean {
   const quotedPrompt = quote.items.find((item) => item.prompt)?.prompt;
   return Boolean(quotedPrompt !== undefined && editorPrompt !== undefined && quotedPrompt === editorPrompt);
+}
+
+export function quoteMatchesPlan(quote: CreativeQuote, shots: CreativeShot[]): boolean {
+  return quote.items.every((item) => {
+    const shot = shots.find((candidate) => candidate.id === item.shotId);
+    return !item.prompt || Boolean(shot && item.prompt === (shot.generativePrompt ?? shot.visualConcept));
+  });
 }

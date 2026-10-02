@@ -8,6 +8,12 @@ The V1 flow is:
 
 `brief + assets → asset intelligence → brand lock → Creative Director → Shot Graph → deterministic/generative routing → quote approval → async jobs → Remotion finishing`
 
+## Finished video lengths
+
+Creative Studio offers an approximately 6-second short clip plus 15, 30, and 60-second finished videos. The short clip remains a single provider shot. Longer targets are directed as ordered sequences of short, registry-compatible cinematic shots (normally 2–3, 4–6, and 8–12 shots respectively); Auvra never sends the final long duration as one provider request unless a reviewed registry capability explicitly supports it.
+
+The long-form flow is plan-first: creative brief → inspect every shot and exact prompt → inspect summed estimate and safety reserve → explicitly approve → submit per-shot jobs → assemble completed assets in shot order → deterministic finishing → final MP4. Each attempt retains its own prompt, model, upstream ID, status, reserve/actual cost, and output asset. A failed shot can receive a replacement quote and retry without resubmitting successful shots.
+
 ## Creative Director and Shot Graph
 
 The Creative Director emits a validated `CreativePlan`: concept, hook, narrative arc, brand system, duration, aspect ratio, audio plan, quality risks, and ordered shots. Each shot carries its exact copy, visual concept, scene mode, source references, motion/transition direction, audio cue, constraints, and an explicit reason when generated video is justified.
@@ -55,6 +61,8 @@ The video provider is separate from chat completion and supports submission, sta
 Provider-returned absolute polling/content URLs are ignored, redirects are rejected for content, and job IDs are allow-listed. `ORBIO_API_KEY` remains server-only.
 
 On a successful submission, the upstream job ID is persisted before polling. Poll failures retain the same generation and retry only `GET`; they never submit a replacement. Startup recovery discovers persisted `pending`/`in_progress` generations with upstream IDs and resumes them with limited concurrency. Polling has a configured interval and bounded lifetime. Failed, cancelled, expired, or locally timed-out jobs become terminal and are never automatically regenerated. A new paid attempt requires another explicit action and remains in history.
+
+Polling traverses every active generation in bounded batches, rather than repeatedly polling only the first concurrency-sized slice. Project progress and browser refresh behavior are derived from the latest attempt for each shot and stop when every required shot is terminal.
 
 Completed content is downloaded through the reconstructed gateway URL and stored under a generated asset ID. If `usage.cost` exists, it is the verified actual cost. If it is absent, actual cost stays absent, status becomes `unverified`, and the original estimate/reserve remains in audit data. Missing cost is never rewritten as zero.
 

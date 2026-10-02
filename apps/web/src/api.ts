@@ -44,7 +44,7 @@ export const api = {
   updateCreativeFinishing: (id: string, finishing: CreativeFinishing) => request<CreativeProject>(`/creative/projects/${encodeURIComponent(id)}/finishing`, { method: "POST", body: JSON.stringify(finishing) }),
   prepareCreativeNarrationScript: (id: string) => request<CreativeProject>(`/creative/projects/${encodeURIComponent(id)}/finishing/prepare-script`, { method: "POST", body: "{}" }),
   renderCreativeFinal: (id: string) => request<CreativeProject>(`/creative/projects/${encodeURIComponent(id)}/render`, { method: "POST", body: "{}" }),
-  quoteCreativeProject: (id: string) => request<CreativeQuote>(`/creative/projects/${encodeURIComponent(id)}/quote`, { method: "POST", body: "{}" }),
+  quoteCreativeProject: (id: string, shotId?: string) => request<CreativeQuote>(`/creative/projects/${encodeURIComponent(id)}/quote`, { method: "POST", body: JSON.stringify(shotId ? { shotId } : {}) }),
   approveCreativeQuote: (id: string, quoteId: string) => request<CreativeQuote>(`/creative/projects/${encodeURIComponent(id)}/quotes/${encodeURIComponent(quoteId)}/approve`, { method: "POST", body: "{}" }),
   generateCreativeProject: (id: string, quoteId: string) => request<{ accepted: boolean; generationIds: string[] }>(`/creative/projects/${encodeURIComponent(id)}/generate`, { method: "POST", body: JSON.stringify({ quoteId }) })
 };
