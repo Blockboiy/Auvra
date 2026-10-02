@@ -51,7 +51,7 @@ export class OrbioVideoProvider implements VideoProvider {
   private headers(json = false) { return { Authorization: `Bearer ${this.configuration.apiKey}`, Accept: "application/json", ...(json ? { "Content-Type": "application/json" } : {}) }; }
   async submitVideo(request: SubmitVideoRequest) {
     if (!this.configuration.apiKey) throw new VideoProviderError("Orbio video generation is not configured.", "NOT_CONFIGURED");
-    const response = await this.fetcher(`${this.baseUrl}/videos`, { method: "POST", headers: this.headers(true), body: JSON.stringify({ model: request.model, prompt: request.prompt, duration: request.durationSeconds, aspect_ratio: request.aspectRatio, resolution: request.resolution, audio: request.audio }), signal: AbortSignal.timeout(this.configuration.timeoutMs) });
+    const response = await this.fetcher(`${this.baseUrl}/videos`, { method: "POST", headers: this.headers(true), body: JSON.stringify({ model: request.model, prompt: request.prompt, duration: request.durationSeconds, aspect_ratio: request.aspectRatio, resolution: request.resolution, generate_audio: request.audio }), signal: AbortSignal.timeout(this.configuration.timeoutMs) });
     const payload = await response.json().catch(() => undefined); if (!response.ok) throw normalizeVideoProviderError(response.status, payload);
     const root = record(payload); const job = record(root?.data) ?? root; const rawId = job?.id ?? job?.job_id;
     if (typeof rawId !== "string") throw new VideoProviderError("Orbio returned no persistent video job identifier.", "INVALID_RESPONSE");

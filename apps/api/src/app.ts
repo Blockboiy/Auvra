@@ -13,6 +13,7 @@ import { BraveWebSearch, FallbackWebSearch, OrbioFirecrawlWebResearch, type WebS
 import { CreativeService } from "./creative/service.js";
 import { JsonCreativeRepository, type CreativeRepository } from "./creative/repository.js";
 import { OrbioVideoProvider, type VideoProvider } from "./creative/video-provider.js";
+import { RemotionFinishingRenderer, type FinishingRenderer } from "./creative/finishing-renderer.js";
 
 export interface AppDependencies {
   repository?: MissionRepository;
@@ -21,6 +22,7 @@ export interface AppDependencies {
   scrapeProvider?: WebScrapeProvider;
   creativeRepository?: CreativeRepository;
   videoProvider?: VideoProvider;
+  finishingRenderer?: FinishingRenderer;
 }
 
 export function createApp(config: AppConfig, dependencies: AppDependencies = {}) {
@@ -33,7 +35,7 @@ export function createApp(config: AppConfig, dependencies: AppDependencies = {})
   service.attachRunner(runner);
   const creativeRepository = dependencies.creativeRepository ?? new JsonCreativeRepository(config.creative.dataFile);
   const videoProvider = dependencies.videoProvider ?? new OrbioVideoProvider({ apiKey: config.provider.apiKey, baseUrl: config.provider.baseUrl, timeoutMs: config.provider.timeoutMs });
-  const creative = new CreativeService(creativeRepository, config, provider, videoProvider);
+  const creative = new CreativeService(creativeRepository, config, provider, videoProvider, dependencies.finishingRenderer ?? new RemotionFinishingRenderer());
   void creative.resume();
 
   const app = express();
@@ -72,8 +74,13 @@ export function createApp(config: AppConfig, dependencies: AppDependencies = {})
   app.get("/api/creative/projects", async (_request, response, next) => { try { response.json(await creative.list()); } catch (error) { next(error); } });
   app.get("/api/creative/projects/:id", async (request, response, next) => { try { response.json(await creative.get(request.params.id)); } catch (error) { next(error); } });
   app.post("/api/creative/projects/:id/assets", upload.array("assets", config.creative.maxAssetFiles), async (request, response, next) => { try { response.status(201).json(await creative.addAssets(String(request.params.id), request.files as Express.Multer.File[], request.body?.role)); } catch (error) { next(error); } });
+  app.post("/api/creative/projects/:id/reference", async (request, response, next) => { try { response.json(await creative.setReferenceAsset(request.params.id, request.body?.assetId)); } catch (error) { next(error); } });
+  app.get("/api/creative/projects/:id/assets/:assetId/content", async (request, response, next) => { try { const { asset, path } = await creative.getAsset(request.params.id, request.params.assetId); response.setHeader("Content-Type", asset.mimeType); response.setHeader("Content-Disposition", "inline"); response.sendFile(path, (error) => { if (error) next(error); }); } catch (error) { next(error); } });
   app.post("/api/creative/projects/:id/analyze", async (request, response, next) => { try { response.json(await creative.analyze(request.params.id)); } catch (error) { next(error); } });
   app.post("/api/creative/projects/:id/direct", async (request, response, next) => { try { response.json(await creative.direct(request.params.id, request.body?.plan)); } catch (error) { next(error); } });
+  app.post("/api/creative/projects/:id/finishing", async (request, response, next) => { try { response.json(await creative.updateFinishing(request.params.id, request.body)); } catch (error) { next(error); } });
+  app.post("/api/creative/projects/:id/finishing/prepare-script", async (request, response, next) => { try { response.json(await creative.prepareNarrationScript(request.params.id)); } catch (error) { next(error); } });
+  app.post("/api/creative/projects/:id/render", async (request, response, next) => { try { response.status(201).json(await creative.renderFinal(request.params.id)); } catch (error) { next(error); } });
   app.post("/api/creative/projects/:id/quote", async (request, response, next) => { try { response.status(201).json(await creative.quote(request.params.id)); } catch (error) { next(error); } });
   app.post("/api/creative/projects/:id/quotes/:quoteId/approve", async (request, response, next) => { try { response.json(await creative.approveQuote(request.params.id, request.params.quoteId)); } catch (error) { next(error); } });
   app.post("/api/creative/projects/:id/generate", async (request, response, next) => { try { response.status(202).json(await creative.generate(request.params.id, request.body?.quoteId)); } catch (error) { next(error); } });

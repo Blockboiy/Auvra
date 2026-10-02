@@ -1,5 +1,6 @@
 export type CreativeAspectRatio = "16:9" | "9:16";
-export type CreativeAssetRole = "source" | "logo" | "wordmark" | "reference_video" | "audio";
+export type CreativeCreationMode = "image_to_video" | "cinematic_scene" | "product_lifestyle" | "social_clip" | "visual_narrative";
+export type CreativeAssetRole = "source" | "logo" | "wordmark" | "reference_video" | "audio" | "narration" | "generated_video" | "final_output";
 export type CreativeVisualMode = "motion_graphic" | "generative_video" | "product_proof" | "hybrid";
 export type VideoGenerationStatus = "pending" | "in_progress" | "completed" | "failed" | "cancelled" | "expired";
 
@@ -27,15 +28,28 @@ export interface BrandSystem {
 }
 
 export interface CreativeBrief {
+  creationMode?: CreativeCreationMode;
   objective: string;
   audience: string;
   keyMessage: string;
   cta?: string;
-  durationSeconds: 15 | 30;
+  durationSeconds: 4 | 6 | 8 | 15 | 30;
   aspectRatio: CreativeAspectRatio;
   toneNotes: string;
   referenceAssetId?: string;
   qualityTarget: "standard" | "premium";
+}
+
+export interface CreativeFinishing {
+  voiceoverEnabled: boolean;
+  voiceoverSource: "user" | "auvra";
+  voiceoverScript?: string;
+  narrationAssetId?: string;
+  captionsEnabled: boolean;
+  captionStyle?: "clean" | "bold";
+  logoEnabled?: boolean;
+  ctaEnabled?: boolean;
+  ctaText?: string;
 }
 
 export interface AssetInsight {
@@ -87,11 +101,12 @@ export interface CreativePlan {
   openingHook: string;
   narrativeArc: string;
   brandSystem: BrandSystem;
-  durationSeconds: 15 | 30;
+  durationSeconds: 4 | 6 | 8 | 15 | 30;
   aspectRatio: CreativeAspectRatio;
   shots: CreativeShot[];
   audioPlan: CreativeAudioPlan;
   closingCTA?: string;
+  finishing?: CreativeFinishing;
   qualityRisks: string[];
   createdAt: string;
 }
@@ -129,6 +144,7 @@ export interface VideoGeneration {
   shotId: string;
   model: string;
   provider: "Orbio";
+  quoteId?: string;
   upstreamJobId?: string;
   request: Record<string, unknown>;
   status: VideoGenerationStatus;
@@ -165,6 +181,8 @@ export interface CreativeProject {
   generations: VideoGeneration[];
   events: CreativeEvent[];
   outputAssetId?: string;
+  finalRenderFingerprint?: string;
+  finalRenderedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
